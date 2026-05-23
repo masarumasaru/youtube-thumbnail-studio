@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YouTube Thumbnail Studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="control-panel" aria-label="入力">
+        <header class="app-header">
+          <p class="eyebrow">Thumbnail Studio</p>
+          <h1>YouTubeサムネ制作</h1>
+        </header>
+
+        <div class="panel-stack">
+          <details class="input-block api-key-block">
+            <summary>
+              <span>K</span>
+              <div>
+                <h2>API設定</h2>
+                <p><span id="apiKeyStatus">未設定</span></p>
+              </div>
+            </summary>
+            <div class="api-key-row">
+              <input id="apiKeyInput" type="password" autocomplete="off" placeholder="sk-..." />
+              <button id="saveApiKey" type="button">保存</button>
+            </div>
+            <div class="api-key-actions">
+              <span>OpenAI APIキーはこのブラウザに保存されます</span>
+              <button id="clearApiKey" type="button">削除</button>
+            </div>
+          </details>
+
+          <section class="input-block brand-block">
+            <div class="block-heading">
+              <span>U</span>
+              <div>
+                <h2>掲載先URL</h2>
+                <p>決まっている場合はブランドの雰囲気を参考にします</p>
+              </div>
+            </div>
+            <input id="brandUrl" class="wide-input" type="url" inputmode="url" placeholder="https://example.com" />
+          </section>
+
+          <section class="input-block">
+            <div class="block-heading">
+              <span>A</span>
+              <div>
+                <h2>雰囲気の参考</h2>
+                <p>色味やテンションの参考にするスクショ</p>
+              </div>
+            </div>
+            <label class="drop-zone" for="moodFiles">
+              <input id="moodFiles" type="file" accept="image/*" multiple />
+              <strong>参考画像を選択</strong>
+              <small>複数枚OK</small>
+            </label>
+            <div id="moodPreview" class="thumb-strip"></div>
+          </section>
+
+          <section class="input-block">
+            <div class="block-heading">
+              <span>B</span>
+              <div>
+                <h2>サムネ元素材</h2>
+                <p>見出しを重ねるメイン画像</p>
+              </div>
+            </div>
+            <label class="drop-zone" for="baseFiles">
+              <input id="baseFiles" type="file" accept="image/*" multiple />
+              <strong>素材画像を選択</strong>
+              <small>複数枚OK</small>
+            </label>
+            <div id="basePreview" class="thumb-strip"></div>
+          </section>
+
+          <section class="input-block script-block">
+            <div class="block-heading">
+              <span>T</span>
+              <div>
+                <h2>テキスト原稿</h2>
+                <p>画像内で語られている内容や台本</p>
+              </div>
+            </div>
+            <textarea id="scriptText" placeholder="例: 新商品のキッチン収納を実際に使ってみたら、想像以上に片付けやすくなった。特に引き出しの奥まで見える設計が便利で..."></textarea>
+          </section>
+
+          <section class="settings-grid single-setting">
+            <label>
+              見出し数
+              <input id="headlineCount" type="number" min="2" max="8" value="5" />
+            </label>
+          </section>
+
+          <div class="action-row">
+            <button id="generateBtn" class="primary-action" type="button">生成</button>
+            <button id="clearBtn" type="button">リセット</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="生成結果">
+        <div class="workspace-top">
+          <div>
+            <p class="eyebrow">Output</p>
+            <h2>見出し選択とAIデザイン</h2>
+          </div>
+          <div id="statusText" class="status">素材と原稿を入れて生成してください</div>
+        </div>
+
+        <section class="headline-board">
+          <div class="section-title">
+            <h3>見出し案</h3>
+            <button id="refreshHeadlines" type="button">見出しだけ再生成</button>
+          </div>
+          <div id="headlineList" class="headline-list"></div>
+        </section>
+
+        <section class="result-board">
+          <div class="section-title">
+            <h3>AIデザイン案</h3>
+          </div>
+          <div id="referenceReport" class="reference-report" hidden></div>
+          <div id="textStyleControls" class="text-style-controls" hidden></div>
+          <div class="design-generate-row">
+            <button id="generateDesign" type="button">選択見出しとテーマで生成</button>
+          </div>
+          <div id="designResult" class="design-result">
+            <p>見出し案を選んでからAIデザインを生成してください</p>
+          </div>
+          <div id="downloadActions" class="download-actions" hidden>
+            <button id="downloadDesign" type="button" disabled>完成サムネPNG保存</button>
+            <button id="generateTextLayer" type="button" disabled>文字だけ透過PNG生成</button>
+          </div>
+          <p class="download-note">生成後に、完成サムネPNGと文字だけの透過PNGをそれぞれ保存できます。</p>
+          <section id="textLayerSection" class="text-layer-section" hidden>
+            <div class="section-title">
+              <h3>文字だけ透過PNG</h3>
+            </div>
+            <div id="textLayerResult" class="text-layer-result">
+              <p>文字だけ透過PNGを生成するとここに表示されます</p>
+            </div>
+            <div class="text-layer-actions">
+              <button id="downloadTextLayer" type="button" disabled>文字だけ透過PNG保存</button>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
