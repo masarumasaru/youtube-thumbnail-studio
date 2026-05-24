@@ -425,20 +425,25 @@ async function generateTransparentTextLayer(apiKey, { fullImageBase64, headline,
 }
 
 async function generateChromaTextPackage(apiKey, { fullImageBase64, headline, textTheme, designPlan, styleSpec, keyColor }) {
+  const hasBacking = Boolean(styleSpec.backingRegions?.length);
   const styleSummary = [
     `主要文字色: ${styleSpec.fillColor}`,
     styleSpec.fillRegions?.length ? `複数色領域: ${styleSpec.fillRegions.map((region) => `${region.label}:${region.color}`).join(", ")}` : "複数色領域: なし",
     Number(styleSpec.strokeOpacity) > 0 ? `縁取り: ${styleSpec.strokeColor} 幅${styleSpec.strokeWidth}` : "縁取り: なし",
     Number(styleSpec.shadowOpacity) > 0 ? `影: ${styleSpec.shadowColor} 透明度${styleSpec.shadowOpacity}` : "影: なし",
-    styleSpec.backingRegions?.length ? `帯/背景プレート: あり` : "帯/背景プレート: 完成サムネにある場合のみ再現",
+    hasBacking ? `帯/背景プレート: あり` : "帯/背景プレート: なし",
   ].join("\n");
   const prompt = [
-    "添付の完成サムネを参照し、見出しの文字デザインパッケージだけを再生成してください。",
-    "文字、縁取り、影、光彩、帯、ラベル背景、斜め線、装飾枠など、見出しと不可分なデザイン部品は含めてください。",
+    "添付の完成サムネを参照し、見出しの文字デザインパッケージだけをトレース再生成してください。新しいデザイン案は作らないでください。",
+    hasBacking
+      ? "完成サムネに実際に見える文字、縁取り、影、光彩、帯、ラベル背景、斜め線、装飾枠など、見出しと不可分なデザイン部品だけを含めてください。"
+      : "完成サムネに実際に見える文字、縁取り、影、光彩だけを含めてください。帯、ラベル背景、斜め線、装飾枠、下敷き、白いプレートは新規追加しないでください。",
     "部屋、人物、家具、写真、商品、壁、床、照明、背景画像は絶対に含めないでください。",
     `背景は全面を完全な単色 ${keyColor.hex} にしてください。アンチエイリアス以外で背景色を文字や装飾に使わないでください。`,
     "完成サムネと同じ16:9キャンバス上で、文字デザインの位置、サイズ、改行、傾きをできるだけ一致させてください。",
-    "文字の色分け、金色、赤い強調語、白帯、縁取り、斜めラインがある場合は完成サムネの見た目を優先して再現してください。",
+    hasBacking
+      ? "文字の色分け、金色、赤い強調語、白帯、縁取り、斜めラインがある場合は完成サムネの見た目を優先して再現してください。"
+      : "文字の色分け、金色、赤い強調語、縁取りがある場合は完成サムネの見た目を優先して再現してください。完成サムネにない白帯や斜めラインは描かないでください。",
     "背景以外は不透明または半透明のデザインとして描いてください。透明PNGではなく、指定背景色つきPNGを出してください。",
     `見出し: ${headline}`,
     `文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
