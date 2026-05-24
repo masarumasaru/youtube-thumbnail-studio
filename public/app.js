@@ -566,10 +566,14 @@ async function generateTextLayer() {
       }),
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || data.error || "文字だけ透過PNG生成に失敗しました");
+    if (!response.ok) {
+      const error = new Error(data.detail || data.error || "文字だけ透過PNG生成に失敗しました");
+      error.diagnostics = data.diagnostics || [];
+      throw error;
+    }
     state.generatedTextLayerUrl = await normalizeImageToThumbnail(data.textLayer, true);
     state.generatedTextLayerQuality = data.quality || null;
-    renderTextLayerImage(state.generatedTextLayerUrl, state.generatedTextLayerQuality);
+    renderTextLayerImage(state.generatedTextLayerUrl, state.generatedTextLayerQuality, data.diagnostics || []);
     const cached = getCachedDesign();
     if (cached) {
       cached.textLayer = state.generatedTextLayerUrl;
@@ -579,7 +583,7 @@ async function generateTextLayer() {
     els.downloadTextLayer.disabled = failedQuality;
     setStatus(failedQuality ? "文字だけ透過PNGを生成しましたが、品質チェックで再生成推奨です" : "文字だけ透過PNGを生成しました");
   } catch (error) {
-    showTextLayerError(`文字だけ透過PNG生成に失敗しました: ${error.message}`);
+    showTextLayerError(`文字だけ透過PNG生成に失敗しました: ${error.message}`, error.diagnostics || []);
     setStatus(`文字だけ透過PNG生成に失敗しました: ${error.message}`);
   } finally {
     setDesignBusy(false);
@@ -672,7 +676,7 @@ function resetTextLayerResult(message = "文字だけ透過PNGを生成すると
   els.textLayerResult.appendChild(p);
 }
 
-function showTextLayerError(message) {
+function showTextLayerError(message, diagnostics = []) {
   state.generatedTextLayerUrl = "";
   state.generatedTextLayerQuality = null;
   els.downloadTextLayer.disabled = true;
@@ -681,9 +685,10 @@ function showTextLayerError(message) {
   const p = document.createElement("p");
   p.textContent = message;
   els.textLayerResult.appendChild(p);
+  if (diagnostics.length) els.textLayerResult.appendChild(renderDiagnostics(diagnostics));
 }
 
-function renderTextLayerImage(src, quality = null) {
+function renderTextLayerImage(src, quality = null, diagnostics = []) {
   els.textLayerSection.hidden = false;
   els.textLayerResult.innerHTML = "";
   const img = document.createElement("img");
@@ -691,6 +696,7 @@ function renderTextLayerImage(src, quality = null) {
   img.alt = "AI generated transparent text layer";
   els.textLayerResult.appendChild(img);
   if (quality) els.textLayerResult.appendChild(renderQualityReport(quality));
+  if (diagnostics.length) els.textLayerResult.appendChild(renderDiagnostics(diagnostics));
 }
 
 function renderQualityReport(quality) {
@@ -706,6 +712,25 @@ function renderQualityReport(quality) {
   for (const check of quality.checks || []) {
     const item = document.createElement("li");
     item.textContent = check;
+    list.appendChild(item);
+  }
+  box.append(title, note, list);
+  return box;
+}
+
+function renderDiagnostics(diagnostics) {
+  const box = document.createElement("div");
+  box.className = "quality-report quality-warn";
+  const title = document.createElement("strong");
+  title.textContent = "生成診断ログ";
+  const note = document.createElement("p");
+  note.textContent = "文字だけ透過PNGの内部処理で、どの方式を試したかを表示しています。";
+  const list = document.createElement("ul");
+  for (const entry of diagnostics) {
+    const item = document.createElement("li");
+    const stage = entry.stage ? `[${entry.stage}] ` : "";
+    const status = entry.status ? `${entry.status}: ` : "";
+    item.textContent = `${stage}${status}${entry.message || ""}`;
     list.appendChild(item);
   }
   box.append(title, note, list);

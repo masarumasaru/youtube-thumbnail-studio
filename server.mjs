@@ -306,7 +306,9 @@ async function handleTextLayer(req, res) {
   const headline = normalizeHeadline(body.headline || "");
   const textTheme = normalizeTextTheme(body.textTheme);
   const designPlan = typeof body.designPlan === "object" && body.designPlan ? body.designPlan : {};
-  const imageBase64 = image.replace(/^data:image\/\w+;base64,/, "");
+  const imageMatch = image.match(/^data:(image\/[\w.+-]+);base64,(.*)$/);
+  const imageMime = imageMatch ? imageMatch[1] : "image/png";
+  const imageBase64 = imageMatch ? imageMatch[2] : image.replace(/^data:image\/\w+;base64,/, "");
 
   if (!imageBase64 || !headline) {
     sendJson(res, 400, { error: "image and headline are required" });
@@ -317,6 +319,7 @@ async function handleTextLayer(req, res) {
   try {
     textLayerResult = await generateTransparentTextLayer(apiKey, {
       fullImageBase64: imageBase64,
+      imageMime,
       headline,
       textTheme,
       designPlan,
@@ -325,6 +328,7 @@ async function handleTextLayer(req, res) {
     sendJson(res, 502, {
       error: "OpenAI text layer generation failed",
       detail: error.message || "OpenAI text layer generation failed",
+      diagnostics: error.diagnostics || [],
     });
     return;
   }
@@ -339,6 +343,7 @@ async function handleTextLayer(req, res) {
     textLayer: `data:image/png;base64,${textLayerResult.textLayerBase64}`,
     mask: textLayerResult.maskBase64 ? `data:image/png;base64,${textLayerResult.maskBase64}` : "",
     quality: textLayerResult.quality,
+    diagnostics: textLayerResult.diagnostics || [],
   });
 }
 
@@ -411,26 +416,31 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount
   }
 }
 
-async function generateTransparentTextLayer(apiKey, { fullImageBase64, headline, textTheme, designPlan }) {
+async function generateTransparentTextLayer(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan }) {
+  const diagnostics = [];
   const styleSpec = await createTextLayerStyle(apiKey, { fullImageBase64, headline, textTheme, designPlan });
+  diagnostics.push({ stage: "style", status: "ok", message: "文字色・影・縁取りの解析が完了しました" });
   const keyColor = chooseChromaKeyColor(styleSpec);
   let packageBase64 = "";
   try {
-    packageBase64 = await generateChromaTextPackage(apiKey, { fullImageBase64, headline, textTheme, designPlan, styleSpec, keyColor });
+    packageBase64 = await generateChromaTextPackage(apiKey, { fullImageBase64, imageMime, headline, textTheme, designPlan, styleSpec, keyColor, diagnostics });
   } catch (error) {
     console.warn(`OpenAI text-package fallback: ${error.message || "unknown"}`);
-    return generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, headline, textTheme, designPlan, styleSpec });
+    diagnostics.push({ stage: "chroma-package", status: "fallback", message: error.message || "文字デザインパッケージ生成に失敗しました" });
+    return generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, imageMime, headline, textTheme, designPlan, styleSpec, diagnostics });
   }
   if (!packageBase64) return null;
   const composed = chromaPackageToTransparentPng(packageBase64, keyColor, styleSpec);
+  diagnostics.push({ stage: "compose", status: "ok", message: "クロマキー背景を抜き、影と光彩を再構築しました" });
   return {
     textLayerBase64: composed.textLayerBase64,
     maskBase64: composed.maskBase64,
     quality: composed.quality,
+    diagnostics,
   };
 }
 
-async function generateChromaTextPackage(apiKey, { fullImageBase64, headline, textTheme, designPlan, styleSpec, keyColor }) {
+async function generateChromaTextPackage(apiKey, { fullImageBase64, imageMime, headline, textTheme, designPlan, styleSpec, keyColor, diagnostics }) {
   const hasBacking = Boolean(styleSpec.backingRegions?.length);
   const styleSummary = [
     `主要文字色: ${styleSpec.fillColor}`,
@@ -461,13 +471,16 @@ async function generateChromaTextPackage(apiKey, { fullImageBase64, headline, te
 
   return requestImageEditBase64(apiKey, {
     fullImageBase64,
+    imageMime,
     prompt,
     errorLabel: "OpenAI text package generation failed",
     allowSquareFallback: false,
+    diagnostics,
+    stage: "chroma-package",
   });
 }
 
-async function generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, headline, textTheme, designPlan, styleSpec = null }) {
+async function generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan, styleSpec = null, diagnostics = [] }) {
   const resolvedStyleSpec = styleSpec || await createTextLayerStyle(apiKey, { fullImageBase64, headline, textTheme, designPlan });
   const prompt = [
     "添付の完成サムネから、見出し文字・縁取り・影・光彩・文字と不可分な装飾だけのアルファマスクを作ってください。",
@@ -485,59 +498,124 @@ async function generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, hea
 
   const maskBase64 = await requestImageEditBase64(apiKey, {
     fullImageBase64,
+    imageMime,
     prompt,
     errorLabel: "OpenAI text layer generation failed",
     allowSquareFallback: true,
+    diagnostics,
+    stage: "legacy-mask",
   });
   if (!maskBase64) return null;
   const composed = composeTextLayerFromMask(fullImageBase64, maskBase64, resolvedStyleSpec);
+  diagnostics.push({ stage: "compose", status: "fallback-ok", message: "旧マスク方式で文字レイヤーを合成しました" });
   return {
     textLayerBase64: composed.textLayerBase64,
     maskBase64: composed.maskBase64,
     quality: composed.quality,
+    diagnostics,
   };
 }
 
-async function requestImageEditBase64(apiKey, { fullImageBase64, prompt, errorLabel, allowSquareFallback = false }) {
+async function requestImageEditBase64(apiKey, { fullImageBase64, imageMime = "image/png", prompt, errorLabel, allowSquareFallback = false, diagnostics = [], stage = "image-edit" }) {
   const attempts = [
-    { size: "1536x1024", input_fidelity: "high" },
-    { size: "auto", input_fidelity: "high" },
-    ...(allowSquareFallback ? [{ size: "1024x1024" }] : []),
+    { size: "1536x1024", input_fidelity: "high", transport: "multipart", imageField: "image[]" },
+    { size: "1536x1024", input_fidelity: "high", transport: "multipart", imageField: "image" },
+    { size: "1536x1024", input_fidelity: "high", transport: "json" },
+    { size: "1024x1536", input_fidelity: "high", transport: "multipart", imageField: "image[]" },
+    ...(allowSquareFallback ? [{ size: "1024x1024", transport: "multipart", imageField: "image[]" }] : []),
   ];
   let lastMessage = errorLabel;
 
   for (const attempt of attempts) {
-    const body = {
-      model: textLayerImageModel,
-      images: [
-        {
-          image_url: `data:image/png;base64,${fullImageBase64}`,
-        },
-      ],
+    diagnostics.push({
+      stage,
+      status: "try",
+      message: `${attempt.transport}${attempt.imageField ? `:${attempt.imageField}` : ""} / size=${attempt.size}${attempt.input_fidelity ? " / fidelity=high" : ""} で画像編集APIを試行`,
+    });
+    const request = buildImageEditRequest({
+      apiKey,
+      fullImageBase64,
+      imageMime,
       prompt,
-      size: attempt.size,
-      quality: "high",
-      background: "opaque",
-      output_format: "png",
-      ...(attempt.input_fidelity ? { input_fidelity: attempt.input_fidelity } : {}),
-    };
+      attempt,
+    });
     const response = await fetch("https://api.openai.com/v1/images/edits", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+      headers: request.headers,
+      body: request.body,
     });
-    const data = await response.json();
-    if (response.ok) return data.data?.[0]?.b64_json || "";
+    const data = await readResponseJson(response);
+    if (response.ok) {
+      diagnostics.push({
+        stage,
+        status: "ok",
+        message: `${attempt.transport}${attempt.imageField ? `:${attempt.imageField}` : ""} / size=${attempt.size} で生成成功`,
+      });
+      return data.data?.[0]?.b64_json || "";
+    }
 
     lastMessage = data.error?.message || errorLabel;
+    diagnostics.push({
+      stage,
+      status: "error",
+      message: `${attempt.transport}${attempt.imageField ? `:${attempt.imageField}` : ""} / size=${attempt.size}: ${lastMessage}`,
+    });
     console.warn(`OpenAI image-edit error: status=${response.status}, size=${attempt.size}, message=${lastMessage}`);
     if (!shouldRetryImageEdit(lastMessage, response.status)) break;
   }
 
-  throw new Error(lastMessage);
+  const error = new Error(lastMessage);
+  error.diagnostics = diagnostics;
+  throw error;
+}
+
+function buildImageEditRequest({ apiKey, fullImageBase64, imageMime, prompt, attempt }) {
+  if (attempt.transport === "json") {
+    return {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: textLayerImageModel,
+        images: [
+          {
+            image_url: `data:${imageMime};base64,${fullImageBase64}`,
+          },
+        ],
+        prompt,
+        size: attempt.size,
+        quality: "high",
+        background: "opaque",
+        output_format: "png",
+        ...(attempt.input_fidelity ? { input_fidelity: attempt.input_fidelity } : {}),
+      }),
+    };
+  }
+
+  const form = new FormData();
+  form.append("model", textLayerImageModel);
+  form.append("prompt", prompt);
+  form.append("size", attempt.size);
+  form.append("quality", "high");
+  form.append("background", "opaque");
+  form.append("output_format", "png");
+  if (attempt.input_fidelity) form.append("input_fidelity", attempt.input_fidelity);
+  form.append(attempt.imageField || "image", new Blob([Buffer.from(fullImageBase64, "base64")], { type: imageMime }), `thumbnail-source.${imageMime.includes("jpeg") ? "jpg" : "png"}`);
+  return {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: form,
+  };
+}
+
+async function readResponseJson(response) {
+  try {
+    return await response.json();
+  } catch {
+    return { error: { message: `API returned non-JSON response (${response.status})` } };
+  }
 }
 
 function shouldRetryImageEdit(message, status) {
