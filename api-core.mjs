@@ -904,6 +904,7 @@ function chooseChromaKeyColor(styleSpec = defaultTextLayerStyle()) {
 
 function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultTextLayerStyle()) {
   const png = decodePng(Buffer.from(base64, "base64"));
+  const matteColor = estimateChromaMatteColor(png.data, png.width, png.height, keyColor);
   const alpha = Buffer.alloc(png.width * png.height);
   const rgba = Buffer.alloc(png.width * png.height * 4);
   const low = 24;
@@ -917,7 +918,7 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
     const r = png.data[src];
     const g = png.data[src + 1];
     const b = png.data[src + 2];
-    const distance = colorDistance({ r, g, b }, keyColor);
+    const distance = colorDistance({ r, g, b }, matteColor);
     let a = 255;
     if (distance <= low) a = 0;
     else if (distance < high) a = clamp(Math.round(((distance - low) / (high - low)) * 255), 0, 255);
@@ -927,22 +928,23 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
 
     if (a > 0 && a < 255) {
       const alphaRatio = a / 255;
-      rgba[src] = clamp(Math.round((r - keyColor.r * (1 - alphaRatio)) / alphaRatio), 0, 255);
-      rgba[src + 1] = clamp(Math.round((g - keyColor.g * (1 - alphaRatio)) / alphaRatio), 0, 255);
-      rgba[src + 2] = clamp(Math.round((b - keyColor.b * (1 - alphaRatio)) / alphaRatio), 0, 255);
+      rgba[src] = clamp(Math.round((r - matteColor.r * (1 - alphaRatio)) / alphaRatio), 0, 255);
+      rgba[src + 1] = clamp(Math.round((g - matteColor.g * (1 - alphaRatio)) / alphaRatio), 0, 255);
+      rgba[src + 2] = clamp(Math.round((b - matteColor.b * (1 - alphaRatio)) / alphaRatio), 0, 255);
     } else {
       rgba[src] = r;
       rgba[src + 1] = g;
       rgba[src + 2] = b;
     }
     rgba[src + 3] = a;
-    if (a > 0 && a < 245 && despillPixel(rgba, src, keyColor, styleSpec, a)) despilled += 1;
+    if (a > 0 && a < 245 && despillPixel(rgba, src, matteColor, styleSpec, a)) despilled += 1;
   }
 
   const coverage = active / alpha.length;
   const softRatio = active ? soft / active : 0;
   const checks = [
     `自動クロマキー色: ${keyColor.hex} (${keyColor.name})`,
+    `実測マット色: ${matteColor.hex} (指定色との差 ${Math.round(matteColor.sourceDistance)})`,
     "完成サムネを参照した文字デザインパッケージから背景色をマット処理で除去しました",
   ];
   let score = 88;
@@ -971,10 +973,35 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
       coverage: Number(coverage.toFixed(4)),
       softRatio: Number(softRatio.toFixed(4)),
       despilled,
-      chromaKey: keyColor.hex,
+      chromaKey: matteColor.hex,
       colorization: { style: styleSpec, mode: "chroma-package" },
       checks,
     },
+  };
+}
+
+function estimateChromaMatteColor(data, width, height, expectedColor) {
+  const samples = [];
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 120));
+  for (let x = 0; x < width; x += step) {
+    samples.push(pixelAt(data, width, x, 0), pixelAt(data, width, x, height - 1));
+  }
+  for (let y = 0; y < height; y += step) {
+    samples.push(pixelAt(data, width, 0, y), pixelAt(data, width, width - 1, y));
+  }
+  const nearExpected = samples.filter((pixel) => colorDistance(pixel, expectedColor) <= 120);
+  const source = nearExpected.length >= Math.max(12, samples.length * 0.12) ? nearExpected : samples;
+  const color = {
+    r: median(source.map((pixel) => pixel.r)),
+    g: median(source.map((pixel) => pixel.g)),
+    b: median(source.map((pixel) => pixel.b)),
+  };
+  const sourceDistance = colorDistance(color, expectedColor);
+  return {
+    ...color,
+    hex: rgbToHex(color),
+    name: sourceDistance <= 8 ? expectedColor.name : `${expectedColor.name}補正`,
+    sourceDistance,
   };
 }
 
@@ -1734,6 +1761,10 @@ function estimateBorderColor(data, width, height) {
 function pixelAt(data, width, x, y) {
   const i = (y * width + x) * 4;
   return { r: data[i], g: data[i + 1], b: data[i + 2] };
+}
+
+function rgbToHex({ r, g, b }) {
+  return `#${[r, g, b].map((value) => clamp(Math.round(value), 0, 255).toString(16).padStart(2, "0")).join("")}`;
 }
 
 function median(values) {
