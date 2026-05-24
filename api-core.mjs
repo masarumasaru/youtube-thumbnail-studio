@@ -411,8 +411,7 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount
 
 async function generateTransparentTextLayer(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan }) {
   const diagnostics = [];
-  const styleSpec = await createTextLayerStyle(apiKey, { fullImageBase64, headline, textTheme, designPlan });
-  diagnostics.push({ stage: "style", status: "ok", message: "文字色・影・縁取りの解析が完了しました" });
+  const styleSpec = await createTextLayerStyle(apiKey, { fullImageBase64, imageMime, headline, textTheme, designPlan, diagnostics });
   const keyColor = chooseChromaKeyColor(styleSpec);
   let packageBase64 = "";
   try {
@@ -474,7 +473,7 @@ async function generateChromaTextPackage(apiKey, { fullImageBase64, imageMime, h
 }
 
 async function generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan, styleSpec = null, diagnostics = [] }) {
-  const resolvedStyleSpec = styleSpec || await createTextLayerStyle(apiKey, { fullImageBase64, headline, textTheme, designPlan });
+  const resolvedStyleSpec = styleSpec || await createTextLayerStyle(apiKey, { fullImageBase64, imageMime, headline, textTheme, designPlan, diagnostics });
   const prompt = [
     "添付の完成サムネから、見出し文字・縁取り・影・光彩・文字と不可分な装飾だけのアルファマスクを作ってください。",
     "出力はカラー文字ではなく、白黒グレースケールのマスク画像です。",
@@ -616,119 +615,134 @@ function shouldRetryImageEdit(message, status) {
   return /pattern|invalid|unsupported|size|input_fidelity/i.test(String(message || ""));
 }
 
-async function createTextLayerStyle(apiKey, { fullImageBase64, headline, textTheme, designPlan }) {
+async function createTextLayerStyle(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan, diagnostics = [] }) {
   const fallback = defaultTextLayerStyle();
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      instructions:
-        "You are a thumbnail typography art director. Inspect the completed thumbnail and return only JSON describing the actual visible text color and shadow treatment. Do not sample furniture, room, wall, or photo colors as text fill.",
-      input: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: [
-                "完成サムネに描かれた見出し文字の配色を読み取ってください。",
-                "文字内部は背景写真ではなく、実際の文字塗り色として指定してください。",
-                "背景、家具、部屋、壁、照明の色は文字色として採用しないでください。",
-                "JSONキー: fillColor, fillRegions, strokeColor, strokeOpacity, strokeWidth, shadowColor, shadowOpacity, shadowBlur, shadowOffsetX, shadowOffsetY, backingRegions, note",
-                "fillRegionsは色が違う文字範囲ごとに {color, x, y, width, height, label}。座標は画像全体に対する0から1の正規化bbox。",
-                "赤い強調語など複数色がある場合は必ずfillRegionsに分けてください。単色なら空配列で構いません。",
-                "帯やラベル背景が文字デザインとしてある場合はbackingRegionsに {color, opacity, x, y, width, height, radius, label} を入れてください。ない場合は空配列。",
-                "縁取りが見える場合はstrokeColor/strokeOpacity/strokeWidthを指定してください。ない場合strokeOpacityは0。",
-                "色は#RRGGBB。opacityは0から1。shadowBlurは0から24。offsetは-20から20。strokeWidthは0から18。",
-                `見出し: ${headline}`,
-                `文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
-                `設計方針: ${designPlan.backgroundDirection || ""}`,
-              ].join("\n"),
-            },
-            {
-              type: "input_image",
-              image_url: `data:image/png;base64,${fullImageBase64}`,
-              detail: "high",
-            },
-          ],
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "text_layer_style",
-          strict: true,
-          schema: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              fillColor: { type: "string" },
-              fillRegions: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    color: { type: "string" },
-                    x: { type: "number" },
-                    y: { type: "number" },
-                    width: { type: "number" },
-                    height: { type: "number" },
-                    label: { type: "string" },
-                  },
-                  required: ["color", "x", "y", "width", "height", "label"],
-                },
-              },
-              strokeColor: { type: "string" },
-              strokeOpacity: { type: "number" },
-              strokeWidth: { type: "number" },
-              shadowColor: { type: "string" },
-              shadowOpacity: { type: "number" },
-              shadowBlur: { type: "number" },
-              shadowOffsetX: { type: "number" },
-              shadowOffsetY: { type: "number" },
-              backingRegions: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    color: { type: "string" },
-                    opacity: { type: "number" },
-                    x: { type: "number" },
-                    y: { type: "number" },
-                    width: { type: "number" },
-                    height: { type: "number" },
-                    radius: { type: "number" },
-                    label: { type: "string" },
-                  },
-                  required: ["color", "opacity", "x", "y", "width", "height", "radius", "label"],
-                },
-              },
-              note: { type: "string" },
-            },
-            required: ["fillColor", "fillRegions", "strokeColor", "strokeOpacity", "strokeWidth", "shadowColor", "shadowOpacity", "shadowBlur", "shadowOffsetX", "shadowOffsetY", "backingRegions", "note"],
-          },
-        },
-        verbosity: "low",
-      },
-    }),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    console.warn(`OpenAI text-style error: status=${response.status}, message=${data.error?.message || "unknown"}`);
-    return fallback;
-  }
+  diagnostics.push({ stage: "style", status: "try", message: "完成サムネから文字色・影・縁取りを解析します" });
   try {
-    return normalizeTextLayerStyle({ ...fallback, ...JSON.parse(extractOutputText(data)) });
-  } catch {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        instructions:
+          "You are a thumbnail typography art director. Inspect the completed thumbnail and return only JSON describing the actual visible text color and shadow treatment. Do not sample furniture, room, wall, or photo colors as text fill.",
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: [
+                  "完成サムネに描かれた見出し文字の配色を読み取ってください。",
+                  "文字内部は背景写真ではなく、実際の文字塗り色として指定してください。",
+                  "背景、家具、部屋、壁、照明の色は文字色として採用しないでください。",
+                  "JSONキー: fillColor, fillRegions, strokeColor, strokeOpacity, strokeWidth, shadowColor, shadowOpacity, shadowBlur, shadowOffsetX, shadowOffsetY, backingRegions, note",
+                  "fillRegionsは色が違う文字範囲ごとに {color, x, y, width, height, label}。座標は画像全体に対する0から1の正規化bbox。",
+                  "赤い強調語など複数色がある場合は必ずfillRegionsに分けてください。単色なら空配列で構いません。",
+                  "帯やラベル背景が文字デザインとしてある場合はbackingRegionsに {color, opacity, x, y, width, height, radius, label} を入れてください。ない場合は空配列。",
+                  "縁取りが見える場合はstrokeColor/strokeOpacity/strokeWidthを指定してください。ない場合strokeOpacityは0。",
+                  "色は#RRGGBB。opacityは0から1。shadowBlurは0から24。offsetは-20から20。strokeWidthは0から18。",
+                  `見出し: ${headline}`,
+                  `文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
+                  `設計方針: ${designPlan.backgroundDirection || ""}`,
+                ].join("\n"),
+              },
+              {
+                type: "input_image",
+                image_url: `data:${imageMime};base64,${fullImageBase64}`,
+                detail: "high",
+              },
+            ],
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "text_layer_style",
+            strict: true,
+            schema: textLayerStyleSchema(),
+          },
+          verbosity: "low",
+        },
+      }),
+    });
+
+    const data = await readResponseJson(response);
+    if (!response.ok) {
+      const message = data.error?.message || "unknown";
+      diagnostics.push({ stage: "style", status: "fallback", message: `解析APIが失敗したため既定スタイルを使います: ${message}` });
+      console.warn(`OpenAI text-style error: status=${response.status}, message=${message}`);
+      return fallback;
+    }
+    try {
+      const style = normalizeTextLayerStyle({ ...fallback, ...JSON.parse(extractOutputText(data)) });
+      diagnostics.push({ stage: "style", status: "ok", message: "文字色・影・縁取りの解析が完了しました" });
+      return style;
+    } catch (error) {
+      diagnostics.push({ stage: "style", status: "fallback", message: `解析結果のJSON化に失敗したため既定スタイルを使います: ${error.message}` });
+      return fallback;
+    }
+  } catch (error) {
+    diagnostics.push({ stage: "style", status: "fallback", message: `解析前段で失敗したため既定スタイルを使います: ${error.message}` });
     return fallback;
   }
+}
+
+function textLayerStyleSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      fillColor: { type: "string" },
+      fillRegions: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            color: { type: "string" },
+            x: { type: "number" },
+            y: { type: "number" },
+            width: { type: "number" },
+            height: { type: "number" },
+            label: { type: "string" },
+          },
+          required: ["color", "x", "y", "width", "height", "label"],
+        },
+      },
+      strokeColor: { type: "string" },
+      strokeOpacity: { type: "number" },
+      strokeWidth: { type: "number" },
+      shadowColor: { type: "string" },
+      shadowOpacity: { type: "number" },
+      shadowBlur: { type: "number" },
+      shadowOffsetX: { type: "number" },
+      shadowOffsetY: { type: "number" },
+      backingRegions: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            color: { type: "string" },
+            opacity: { type: "number" },
+            x: { type: "number" },
+            y: { type: "number" },
+            width: { type: "number" },
+            height: { type: "number" },
+            radius: { type: "number" },
+            label: { type: "string" },
+          },
+          required: ["color", "opacity", "x", "y", "width", "height", "radius", "label"],
+        },
+      },
+      note: { type: "string" },
+    },
+    required: ["fillColor", "fillRegions", "strokeColor", "strokeOpacity", "strokeWidth", "shadowColor", "shadowOpacity", "shadowBlur", "shadowOffsetX", "shadowOffsetY", "backingRegions", "note"],
+  };
 }
 
 function getApiKey(req) {
