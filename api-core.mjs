@@ -429,15 +429,16 @@ async function generateChromaTextPackage(apiKey, { fullImageBase64, headline, te
   const prompt = [
     "添付の完成サムネを参照し、見出しの文字デザインパッケージだけをトレース再生成してください。新しいデザイン案は作らないでください。",
     hasBacking
-      ? "完成サムネに実際に見える文字、縁取り、影、光彩、帯、ラベル背景、斜め線、装飾枠など、見出しと不可分なデザイン部品だけを含めてください。"
-      : "完成サムネに実際に見える文字、縁取り、影、光彩だけを含めてください。帯、ラベル背景、斜め線、装飾枠、下敷き、白いプレートは新規追加しないでください。",
+      ? "完成サムネに実際に見える文字本体、縁取り、帯、ラベル背景、斜め線、装飾枠など、見出しと不可分な不透明デザイン部品だけを含めてください。"
+      : "完成サムネに実際に見える文字本体と縁取りだけを含めてください。帯、ラベル背景、斜め線、装飾枠、下敷き、白いプレートは新規追加しないでください。",
+    "影、ドロップシャドー、光彩、グロー、壁に落ちるぼかし影、周辺の明るいにじみは描かないでください。それらは後処理で再構築します。",
     "部屋、人物、家具、写真、商品、壁、床、照明、背景画像は絶対に含めないでください。",
     `背景は全面を完全な単色 ${keyColor.hex} にしてください。アンチエイリアス以外で背景色を文字や装飾に使わないでください。`,
     "完成サムネと同じ16:9キャンバス上で、文字デザインの位置、サイズ、改行、傾きをできるだけ一致させてください。",
     hasBacking
       ? "文字の色分け、金色、赤い強調語、白帯、縁取り、斜めラインがある場合は完成サムネの見た目を優先して再現してください。"
       : "文字の色分け、金色、赤い強調語、縁取りがある場合は完成サムネの見た目を優先して再現してください。完成サムネにない白帯や斜めラインは描かないでください。",
-    "背景以外は不透明または半透明のデザインとして描いてください。透明PNGではなく、指定背景色つきPNGを出してください。",
+    "背景以外の文字本体・縁取り・帯はできるだけ不透明に描いてください。透明PNGではなく、指定背景色つきPNGを出してください。",
     `見出し: ${headline}`,
     `文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
     `設計方針: ${designPlan.backgroundDirection || ""}`,
@@ -944,6 +945,7 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
     rgba[src + 3] = a;
     if (a > 0 && a < 245 && despillPixel(rgba, src, matteColor, styleSpec, a)) despilled += 1;
   }
+  const rebuilt = rebuildChromaLayerEffects(rgba, alpha, png.width, png.height, styleSpec);
 
   const coverage = active / alpha.length;
   const softRatio = active ? soft / active : 0;
@@ -951,6 +953,7 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
     `自動クロマキー色: ${keyColor.hex} (${keyColor.name})`,
     `実測マット色: ${matteColor.hex} (指定色との差 ${Math.round(matteColor.sourceDistance)})`,
     "完成サムネを参照した文字デザインパッケージから背景色をマット処理で除去しました",
+    "影と光彩は抽出画像から直接残さず、文字実体マスクから再構築しました",
   ];
   let score = 88;
   if (coverage < 0.015) {
@@ -969,8 +972,8 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
   if (despilled) checks.push(`クロマキー色のにじみを${despilled}ピクセル補正しました`);
 
   return {
-    textLayerBase64: encodePng(png.width, png.height, rgba).toString("base64"),
-    maskBase64: encodeMaskPng(png.width, png.height, alpha).toString("base64"),
+    textLayerBase64: encodePng(png.width, png.height, rebuilt.layer).toString("base64"),
+    maskBase64: encodeMaskPng(png.width, png.height, rebuilt.objectAlpha).toString("base64"),
     quality: {
       status: score >= 78 ? "良好" : score >= 55 ? "要確認" : "再生成推奨",
       score: clamp(Math.round(score), 0, 100),
@@ -978,6 +981,7 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
       coverage: Number(coverage.toFixed(4)),
       softRatio: Number(softRatio.toFixed(4)),
       despilled,
+      rebuiltEffects: rebuilt.report,
       chromaKey: matteColor.hex,
       colorization: { style: styleSpec, mode: "chroma-package" },
       checks,
@@ -1008,6 +1012,73 @@ function estimateChromaMatteColor(data, width, height, expectedColor) {
     name: sourceDistance <= 8 ? expectedColor.name : `${expectedColor.name}補正`,
     sourceDistance,
   };
+}
+
+function rebuildChromaLayerEffects(extracted, alpha, width, height, styleSpec) {
+  const objectAlpha = createObjectAlpha(alpha);
+  const layer = Buffer.alloc(extracted.length);
+  const shadowColor = parseHexColor(styleSpec.shadowColor, defaultTextLayerStyle().shadowColor);
+  const fillAlpha = sharpenAlpha(objectAlpha);
+  const ambientAlpha = createAmbientShadowAlpha(fillAlpha, width, height, styleSpec);
+  const shadowAlpha = createShadowAlpha(fillAlpha, width, height, styleSpec);
+  let ambientPixels = 0;
+  let shadowPixels = 0;
+
+  for (let pixel = 0; pixel < ambientAlpha.length; pixel += 1) {
+    const a = ambientAlpha[pixel];
+    if (!a) continue;
+    ambientPixels += 1;
+    compositePixel(layer, pixel, shadowColor, a);
+  }
+
+  for (let pixel = 0; pixel < shadowAlpha.length; pixel += 1) {
+    const a = shadowAlpha[pixel];
+    if (!a) continue;
+    shadowPixels += 1;
+    compositePixel(layer, pixel, shadowColor, a);
+  }
+
+  for (let pixel = 0; pixel < objectAlpha.length; pixel += 1) {
+    const a = objectAlpha[pixel];
+    if (!a) continue;
+    const i = pixel * 4;
+    compositePixel(layer, pixel, { r: extracted[i], g: extracted[i + 1], b: extracted[i + 2] }, a);
+  }
+
+  return {
+    layer,
+    objectAlpha,
+    report: {
+      mode: "solid-extract-plus-rebuilt-shadow",
+      ambientPixels,
+      shadowPixels,
+    },
+  };
+}
+
+function createObjectAlpha(alpha) {
+  const output = Buffer.alloc(alpha.length);
+  for (let i = 0; i < alpha.length; i += 1) {
+    const value = alpha[i];
+    if (value < 64) output[i] = 0;
+    else if (value < 190) output[i] = clamp(Math.round(((value - 64) / 126) * 220), 0, 220);
+    else output[i] = value;
+  }
+  return output;
+}
+
+function createAmbientShadowAlpha(fillAlpha, width, height, styleSpec) {
+  const opacity = clamp(Number(styleSpec.shadowOpacity), 0, 1);
+  const blur = clamp(Math.round(Number(styleSpec.shadowBlur)), 0, 24);
+  if (opacity <= 0 || blur < 5) return Buffer.alloc(fillAlpha.length);
+  const expanded = dilateAlpha(fillAlpha, width, height, Math.max(1, Math.round(blur / 3)));
+  const glow = boxBlurAlpha(expanded, width, height, Math.max(2, blur), 3);
+  const output = Buffer.alloc(fillAlpha.length);
+  for (let i = 0; i < output.length; i += 1) {
+    const ring = Math.max(0, glow[i] - Math.round(fillAlpha[i] * 0.65));
+    output[i] = Math.round(ring * opacity * 0.38);
+  }
+  return output;
 }
 
 function despillPixel(rgba, index, keyColor, styleSpec, alpha) {
