@@ -917,6 +917,7 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
   const high = 118;
   let active = 0;
   let soft = 0;
+  let despilled = 0;
 
   for (let i = 0; i < alpha.length; i += 1) {
     const src = i * 4;
@@ -942,6 +943,7 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
       rgba[src + 2] = b;
     }
     rgba[src + 3] = a;
+    if (a > 0 && a < 245 && despillPixel(rgba, src, keyColor, styleSpec, a)) despilled += 1;
   }
 
   const coverage = active / alpha.length;
@@ -964,6 +966,7 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
     checks.push("半透明領域が少なく、影や光彩が硬い可能性があります");
     score -= 10;
   }
+  if (despilled) checks.push(`クロマキー色のにじみを${despilled}ピクセル補正しました`);
 
   return {
     textLayerBase64: encodePng(png.width, png.height, rgba).toString("base64"),
@@ -974,11 +977,39 @@ function chromaPackageToTransparentPng(base64, keyColor, styleSpec = defaultText
       summary: `品質チェック: ${score >= 78 ? "良好" : score >= 55 ? "要確認" : "再生成推奨"}`,
       coverage: Number(coverage.toFixed(4)),
       softRatio: Number(softRatio.toFixed(4)),
+      despilled,
       chromaKey: keyColor.hex,
       colorization: { style: styleSpec, mode: "chroma-package" },
       checks,
     },
   };
+}
+
+function despillPixel(rgba, index, keyColor, styleSpec, alpha) {
+  const fillColor = parseHexColor(styleSpec.fillColor, defaultTextLayerStyle().fillColor);
+  const shadowColor = parseHexColor(styleSpec.shadowColor, defaultTextLayerStyle().shadowColor);
+  const target = alpha < 115 ? shadowColor : fillColor;
+  const before = { r: rgba[index], g: rgba[index + 1], b: rgba[index + 2] };
+  const keyVector = {
+    r: keyColor.r - target.r,
+    g: keyColor.g - target.g,
+    b: keyColor.b - target.b,
+  };
+  const pixelVector = {
+    r: before.r - target.r,
+    g: before.g - target.g,
+    b: before.b - target.b,
+  };
+  const keyMagnitude = keyVector.r ** 2 + keyVector.g ** 2 + keyVector.b ** 2;
+  if (keyMagnitude <= 0) return false;
+  const projection = (pixelVector.r * keyVector.r + pixelVector.g * keyVector.g + pixelVector.b * keyVector.b) / keyMagnitude;
+  if (projection <= 0) return false;
+  const amount = clamp(projection * (1 - alpha / 255) * 1.25, 0, 0.9);
+  if (amount <= 0.015) return false;
+  rgba[index] = clamp(Math.round(before.r - keyVector.r * amount), 0, 255);
+  rgba[index + 1] = clamp(Math.round(before.g - keyVector.g * amount), 0, 255);
+  rgba[index + 2] = clamp(Math.round(before.b - keyVector.b * amount), 0, 255);
+  return Math.abs(rgba[index] - before.r) + Math.abs(rgba[index + 1] - before.g) + Math.abs(rgba[index + 2] - before.b) > 2;
 }
 
 function colorDistance(a, b) {
