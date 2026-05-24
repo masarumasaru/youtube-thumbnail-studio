@@ -1,4 +1,6 @@
 const API_KEY_STORAGE = "openai_api_key";
+const APP_VERSION = "0.2.13";
+const APP_BUILD_TIMESTAMP = "2026-05-25 04:22 JST";
 
 const state = {
   moodImages: [],
@@ -18,6 +20,7 @@ const state = {
   textThemes: [],
   palette: ["#e63b2e", "#0f8f8a", "#f3c230"],
   apiKey: localStorage.getItem(API_KEY_STORAGE) || sessionStorage.getItem(API_KEY_STORAGE) || "",
+  apiVersion: "",
 };
 
 const fallbackTextThemes = [
@@ -64,8 +67,11 @@ const els = {
   generateTextLayer: document.querySelector("#generateTextLayer"),
   downloadDesign: document.querySelector("#downloadDesign"),
   downloadTextLayer: document.querySelector("#downloadTextLayer"),
+  appVersion: document.querySelector("#appVersion"),
 };
 
+syncVersionUi();
+loadApiVersion();
 syncApiKeyUi();
 if (state.apiKey) {
   localStorage.setItem(API_KEY_STORAGE, state.apiKey);
@@ -282,10 +288,15 @@ async function generateAiHeadlines(script, count) {
       headers: {
         "Content-Type": "application/json",
         ...(state.apiKey ? { "X-OpenAI-API-Key": state.apiKey } : {}),
+        "X-Client-Version": APP_VERSION,
       },
       body: JSON.stringify(payload),
     });
     const data = await response.json();
+    if (data.version?.apiVersion) {
+      state.apiVersion = `${data.version.apiVersion} / ${data.version.buildTimestamp || ""}`.trim();
+      syncVersionUi();
+    }
     if (!response.ok) {
       throw new Error(data.detail || data.error || "AI生成に失敗しました");
     }
@@ -691,6 +702,23 @@ function showTextLayerError(message, diagnostics = []) {
     status: "missing",
     message: "サーバーから診断ログ配列を受け取れませんでした。上のエラー本文に診断が含まれているか確認してください。",
   }]));
+}
+
+async function loadApiVersion() {
+  try {
+    const response = await fetch(`/api/version?v=${encodeURIComponent(APP_VERSION)}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    state.apiVersion = `${data.apiVersion || "-"} / ${data.buildTimestamp || "-"}`;
+  } catch (error) {
+    state.apiVersion = `未確認 (${error.message})`;
+  }
+  syncVersionUi();
+}
+
+function syncVersionUi() {
+  if (!els.appVersion) return;
+  els.appVersion.textContent = `Web v${APP_VERSION} / API ${state.apiVersion || "確認中"} / ${APP_BUILD_TIMESTAMP}`;
 }
 
 function renderTextLayerImage(src, quality = null, diagnostics = []) {

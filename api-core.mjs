@@ -4,6 +4,8 @@ const runtimeEnv = typeof process !== "undefined" ? process.env : {};
 const model = runtimeEnv.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = runtimeEnv.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = runtimeEnv.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
+const APP_VERSION = "0.2.13";
+const APP_BUILD_TIMESTAMP = "2026-05-25 04:22 JST";
 
 export async function handleApiRequest(request, env = {}) {
   const url = new URL(request.url);
@@ -21,6 +23,10 @@ export async function handleApiRequest(request, env = {}) {
       }
       if (request.method === "POST" && url.pathname === "/api/text-layer") {
         await handleTextLayer(req, res);
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/version") {
+        sendJson(res, 200, appVersionPayload());
         return;
       }
       sendJson(res, 404, { error: "Not found" });
@@ -311,7 +317,7 @@ async function handleTextLayer(req, res) {
   const diagnostics = [{
     stage: "request",
     status: "ok",
-    message: `文字だけ透過PNG生成を開始: mime=${imageMime}, imageBytes=${Buffer.from(imageBase64, "base64").length}`,
+    message: `文字だけ透過PNG生成を開始: api=${APP_VERSION}, client=${req.headers["x-client-version"] || "unknown"}, mime=${imageMime}, imageBytes=${Buffer.from(imageBase64, "base64").length}`,
   }];
   let textLayerResult = null;
   try {
@@ -344,11 +350,20 @@ async function handleTextLayer(req, res) {
 
   sendJson(res, 200, {
     model: textLayerImageModel,
+    version: appVersionPayload(),
     textLayer: `data:image/png;base64,${textLayerResult.textLayerBase64}`,
     mask: textLayerResult.maskBase64 ? `data:image/png;base64,${textLayerResult.maskBase64}` : "",
     quality: textLayerResult.quality,
     diagnostics: textLayerResult.diagnostics || [],
   });
+}
+
+function appVersionPayload() {
+  return {
+    app: "youtube-thumbnail-studio",
+    apiVersion: APP_VERSION,
+    buildTimestamp: APP_BUILD_TIMESTAMP,
+  };
 }
 
 async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount, baseCount, brandContext }) {

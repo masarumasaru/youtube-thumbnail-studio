@@ -63,6 +63,13 @@ button:hover {
   margin-bottom: 26px;
 }
 
+.app-version {
+  margin: 8px 0 0;
+  color: #8a919b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .eyebrow {
   margin: 0 0 7px;
   color: var(--accent-2);
