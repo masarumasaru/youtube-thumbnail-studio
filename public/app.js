@@ -1,6 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
-const APP_VERSION = "0.2.13";
-const APP_BUILD_TIMESTAMP = "2026-05-25 04:22 JST";
+const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
+const APP_VERSION = "0.2.14";
+const APP_BUILD_TIMESTAMP = "2026-05-25 04:53 JST";
 
 const state = {
   moodImages: [],
@@ -560,14 +561,42 @@ async function generateTextLayer() {
 
   showTextLayerLoading("文字だけ透過PNGを生成中", "AIが文字マスクを作成し、完成サムネの色を保持したまま透過PNGへ合成しています。");
   setDesignBusy(true, "AIが文字マスクを生成し、品質チェックしています");
+  const diagnostics = [{
+    stage: "client",
+    status: "start",
+    message: `Web v${APP_VERSION} で文字だけ透過PNG生成を開始`,
+  }];
   try {
     const headline = state.headlines[state.selectedHeadlineIndex] || state.headlines[0];
     const textTheme = (state.textThemes.length ? state.textThemes : fallbackTextThemes)[state.textStyleIndex] || fallbackTextThemes[0];
+    const cacheKey = textLayerCacheKey(headline, textTheme);
+    const cachedResult = readTextLayerCache(cacheKey);
+    if (cachedResult?.ok && cachedResult.textLayer) {
+      diagnostics.push({ stage: "client-cache", status: "hit", message: "同じ条件の成功結果を再利用しました。APIは呼んでいません。" });
+      state.generatedTextLayerUrl = cachedResult.textLayer;
+      state.generatedTextLayerQuality = cachedResult.quality || null;
+      renderTextLayerImage(state.generatedTextLayerUrl, state.generatedTextLayerQuality, [...diagnostics, ...(cachedResult.diagnostics || [])]);
+      els.downloadTextLayer.disabled = state.generatedTextLayerQuality?.status === "再生成推奨";
+      setStatus("キャッシュ済みの文字だけ透過PNGを表示しました。APIは使っていません");
+      return;
+    }
+    if (cachedResult?.ok === false) {
+      diagnostics.push({ stage: "client-cache", status: "hit", message: "同じ条件の失敗結果を再表示しました。APIは呼んでいません。" });
+      showTextLayerError(cachedResult.message || "前回と同じ条件で失敗済みです", [...diagnostics, ...(cachedResult.diagnostics || [])]);
+      setStatus("同じ条件の失敗結果を再表示しました。APIは使っていません");
+      return;
+    }
+    diagnostics.push({
+      stage: "client-request",
+      status: "ready",
+      message: `imageChars=${state.generatedDesignUrl.length}, headlineChars=${String(headline?.text || headline || "").length}, theme=${textTheme.name}`,
+    });
     const response = await fetch("/api/text-layer", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(state.apiKey ? { "X-OpenAI-API-Key": state.apiKey } : {}),
+        "X-Client-Version": APP_VERSION,
       },
       body: JSON.stringify({
         image: state.generatedDesignUrl,
@@ -576,15 +605,44 @@ async function generateTextLayer() {
         designPlan: state.designPlan || {},
       }),
     });
-    const data = await response.json();
+    diagnostics.push({ stage: "client-response", status: String(response.status), message: `HTTP ${response.status} を受信しました` });
+    const data = await response.json().catch((error) => {
+      diagnostics.push({ stage: "client-response", status: "json-error", message: error.message });
+      return {};
+    });
+    if (data.version?.apiVersion) {
+      state.apiVersion = `${data.version.apiVersion} / ${data.version.buildTimestamp || ""}`.trim();
+      syncVersionUi();
+    }
+    const mergedDiagnostics = [...diagnostics, ...(data.diagnostics || [])];
     if (!response.ok) {
       const error = new Error(data.detail || data.error || "文字だけ透過PNG生成に失敗しました");
-      error.diagnostics = data.diagnostics || [];
+      error.diagnostics = mergedDiagnostics;
+      writeTextLayerCache(cacheKey, { ok: false, message: error.message, diagnostics: mergedDiagnostics });
       throw error;
     }
-    state.generatedTextLayerUrl = await normalizeImageToThumbnail(data.textLayer, true);
+    if (!data.textLayer || typeof data.textLayer !== "string") {
+      const error = new Error("APIレスポンスに textLayer が含まれていません");
+      error.diagnostics = mergedDiagnostics;
+      writeTextLayerCache(cacheKey, { ok: false, message: error.message, diagnostics: mergedDiagnostics });
+      throw error;
+    }
+    state.generatedTextLayerUrl = await normalizeImageToThumbnail(data.textLayer, true).catch((error) => {
+      mergedDiagnostics.push({
+        stage: "client-normalize",
+        status: "fallback",
+        message: `ブラウザ内の1280x720正規化に失敗したため、APIが返したPNGをそのまま使います: ${error.message || error.type || "unknown"}`,
+      });
+      return data.textLayer;
+    });
     state.generatedTextLayerQuality = data.quality || null;
-    renderTextLayerImage(state.generatedTextLayerUrl, state.generatedTextLayerQuality, data.diagnostics || []);
+    renderTextLayerImage(state.generatedTextLayerUrl, state.generatedTextLayerQuality, mergedDiagnostics);
+    writeTextLayerCache(cacheKey, {
+      ok: true,
+      textLayer: state.generatedTextLayerUrl,
+      quality: state.generatedTextLayerQuality,
+      diagnostics: mergedDiagnostics,
+    });
     const cached = getCachedDesign();
     if (cached) {
       cached.textLayer = state.generatedTextLayerUrl;
@@ -594,7 +652,7 @@ async function generateTextLayer() {
     els.downloadTextLayer.disabled = failedQuality;
     setStatus(failedQuality ? "文字だけ透過PNGを生成しましたが、品質チェックで再生成推奨です" : "文字だけ透過PNGを生成しました");
   } catch (error) {
-    showTextLayerError(`文字だけ透過PNG生成に失敗しました: ${error.message}`, error.diagnostics || []);
+    showTextLayerError(`文字だけ透過PNG生成に失敗しました: ${error.message}`, error.diagnostics?.length ? error.diagnostics : diagnostics);
     setStatus(`文字だけ透過PNG生成に失敗しました: ${error.message}`);
   } finally {
     setDesignBusy(false);
@@ -808,8 +866,54 @@ function getCachedDesign() {
   return state.designCache.get(designCacheKey());
 }
 
+function textLayerCacheKey(headline, textTheme) {
+  const payload = [
+    APP_VERSION,
+    state.generatedDesignUrl.slice(0, 240),
+    state.generatedDesignUrl.length,
+    typeof headline === "string" ? headline : headline?.text || "",
+    textTheme?.name || "",
+    textTheme?.direction || "",
+  ].join("|");
+  return `${TEXT_LAYER_CACHE_PREFIX}${hashString(payload)}`;
+}
+
+function readTextLayerCache(key) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeTextLayerCache(key, value) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({
+      ...value,
+      version: APP_VERSION,
+      savedAt: new Date().toISOString(),
+    }));
+  } catch {
+    // Large images may exceed sessionStorage; caching is only a cost-saver.
+  }
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function normalizeImageToThumbnail(src, transparent = false) {
   return new Promise((resolve, reject) => {
+    if (!src || typeof src !== "string") {
+      reject(new Error("画像データURLが空です"));
+      return;
+    }
     const image = new Image();
     image.onload = () => {
       const canvas = document.createElement("canvas");
