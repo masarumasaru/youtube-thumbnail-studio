@@ -684,8 +684,13 @@ function showTextLayerError(message, diagnostics = []) {
   els.textLayerResult.innerHTML = "";
   const p = document.createElement("p");
   p.textContent = message;
+  p.style.whiteSpace = "pre-wrap";
   els.textLayerResult.appendChild(p);
-  if (diagnostics.length) els.textLayerResult.appendChild(renderDiagnostics(diagnostics));
+  els.textLayerResult.appendChild(renderDiagnostics(diagnostics.length ? diagnostics : [{
+    stage: "client",
+    status: "missing",
+    message: "サーバーから診断ログ配列を受け取れませんでした。上のエラー本文に診断が含まれているか確認してください。",
+  }]));
 }
 
 function renderTextLayerImage(src, quality = null, diagnostics = []) {

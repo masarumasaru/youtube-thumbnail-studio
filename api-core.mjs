@@ -308,6 +308,11 @@ async function handleTextLayer(req, res) {
     return;
   }
 
+  const diagnostics = [{
+    stage: "request",
+    status: "ok",
+    message: `文字だけ透過PNG生成を開始: mime=${imageMime}, imageBytes=${Buffer.from(imageBase64, "base64").length}`,
+  }];
   let textLayerResult = null;
   try {
     textLayerResult = await generateTransparentTextLayer(apiKey, {
@@ -316,18 +321,24 @@ async function handleTextLayer(req, res) {
       headline,
       textTheme,
       designPlan,
+      diagnostics,
     });
   } catch (error) {
+    const errorDiagnostics = normalizeDiagnostics(error.diagnostics?.length ? error.diagnostics : diagnostics);
     sendJson(res, 502, {
       error: "OpenAI text layer generation failed",
-      detail: error.message || "OpenAI text layer generation failed",
-      diagnostics: error.diagnostics || [],
+      detail: formatDiagnosticError(error.message || "OpenAI text layer generation failed", errorDiagnostics),
+      diagnostics: errorDiagnostics,
     });
     return;
   }
 
   if (!textLayerResult?.textLayerBase64) {
-    sendJson(res, 502, { error: "OpenAI response did not include a transparent text layer" });
+    sendJson(res, 502, {
+      error: "OpenAI response did not include a transparent text layer",
+      detail: formatDiagnosticError("OpenAI response did not include a transparent text layer", diagnostics),
+      diagnostics,
+    });
     return;
   }
 
@@ -409,8 +420,7 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount
   }
 }
 
-async function generateTransparentTextLayer(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan }) {
-  const diagnostics = [];
+async function generateTransparentTextLayer(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan, diagnostics = [] }) {
   const styleSpec = await createTextLayerStyle(apiKey, { fullImageBase64, imageMime, headline, textTheme, designPlan, diagnostics });
   const keyColor = chooseChromaKeyColor(styleSpec);
   let packageBase64 = "";
@@ -613,6 +623,24 @@ async function readResponseJson(response) {
 function shouldRetryImageEdit(message, status) {
   if (status >= 500 || status === 429) return true;
   return /pattern|invalid|unsupported|size|input_fidelity/i.test(String(message || ""));
+}
+
+function normalizeDiagnostics(diagnostics) {
+  if (!Array.isArray(diagnostics) || !diagnostics.length) {
+    return [{ stage: "unknown", status: "error", message: "診断ログが生成される前に失敗しました" }];
+  }
+  return diagnostics.map((entry) => ({
+    stage: String(entry?.stage || "unknown"),
+    status: String(entry?.status || "info"),
+    message: String(entry?.message || ""),
+  }));
+}
+
+function formatDiagnosticError(message, diagnostics) {
+  const lines = normalizeDiagnostics(diagnostics).map((entry, index) =>
+    `${index + 1}. [${entry.stage}] ${entry.status}: ${entry.message}`
+  );
+  return `${message}\n\n生成診断ログ:\n${lines.join("\n")}`;
 }
 
 async function createTextLayerStyle(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan, diagnostics = [] }) {
