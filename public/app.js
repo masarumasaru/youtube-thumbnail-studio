@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.15";
-const APP_BUILD_TIMESTAMP = "2026-05-25 09:52 JST";
+const APP_VERSION = "0.2.16";
+const APP_BUILD_TIMESTAMP = "2026-05-25 13:14 JST";
 
 const state = {
   moodImages: [],
@@ -611,10 +611,7 @@ async function generateTextLayer() {
       return;
     }
     if (cachedResult?.ok === false) {
-      diagnostics.push({ stage: "client-cache", status: "hit", message: "同じ条件の失敗結果を再表示しました。APIは呼んでいません。" });
-      showTextLayerError(cachedResult.message || "前回と同じ条件で失敗済みです", [...diagnostics, ...(cachedResult.diagnostics || [])]);
-      setStatus("同じ条件の失敗結果を再表示しました。APIは使っていません");
-      return;
+      diagnostics.push({ stage: "client-cache", status: "skip", message: "失敗結果は再利用せず、APIへ再試行します。" });
     }
     diagnostics.push({
       stage: "client-request",
@@ -649,13 +646,11 @@ async function generateTextLayer() {
     if (!response.ok) {
       const error = new Error(data.detail || data.error || "文字だけ透過PNG生成に失敗しました");
       error.diagnostics = mergedDiagnostics;
-      writeTextLayerCache(cacheKey, { ok: false, message: error.message, diagnostics: mergedDiagnostics });
       throw error;
     }
     if (!data.textLayer || typeof data.textLayer !== "string") {
       const error = new Error("APIレスポンスに textLayer が含まれていません");
       error.diagnostics = mergedDiagnostics;
-      writeTextLayerCache(cacheKey, { ok: false, message: error.message, diagnostics: mergedDiagnostics });
       throw error;
     }
     state.generatedTextLayerUrl = await normalizeImageToThumbnail(data.textLayer, true).catch((error) => {
