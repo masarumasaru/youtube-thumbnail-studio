@@ -4,8 +4,8 @@ const runtimeEnv = typeof process !== "undefined" ? process.env : {};
 const model = runtimeEnv.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = runtimeEnv.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = runtimeEnv.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.14";
-const APP_BUILD_TIMESTAMP = "2026-05-25 04:53 JST";
+const APP_VERSION = "0.2.15";
+const APP_BUILD_TIMESTAMP = "2026-05-25 09:52 JST";
 
 export async function handleApiRequest(request, env = {}) {
   const url = new URL(request.url);
@@ -319,6 +319,7 @@ async function handleTextLayer(req, res) {
     status: "ok",
     message: `文字だけ透過PNG生成を開始: api=${APP_VERSION}, client=${req.headers["x-client-version"] || "unknown"}, mime=${imageMime}, imageBytes=${Buffer.from(imageBase64, "base64").length}`,
   }];
+  traceTextLayer("request", diagnostics, "accepted");
   let textLayerResult = null;
   try {
     textLayerResult = await generateTransparentTextLayer(apiKey, {
@@ -331,6 +332,7 @@ async function handleTextLayer(req, res) {
     });
   } catch (error) {
     const errorDiagnostics = normalizeDiagnostics(error.diagnostics?.length ? error.diagnostics : diagnostics);
+    traceTextLayer("error", errorDiagnostics, error.message || "OpenAI text layer generation failed");
     sendJson(res, 502, {
       error: "OpenAI text layer generation failed",
       detail: formatDiagnosticError(error.message || "OpenAI text layer generation failed", errorDiagnostics),
@@ -535,11 +537,7 @@ async function generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, ima
 
 async function requestImageEditBase64(apiKey, { fullImageBase64, imageMime = "image/png", prompt, errorLabel, allowSquareFallback = false, diagnostics = [], stage = "image-edit" }) {
   const attempts = [
-    { size: "1536x1024", input_fidelity: "high", transport: "multipart", imageField: "image[]" },
-    { size: "1536x1024", input_fidelity: "high", transport: "multipart", imageField: "image" },
     { size: "1536x1024", input_fidelity: "high", transport: "json" },
-    { size: "1024x1536", input_fidelity: "high", transport: "multipart", imageField: "image[]" },
-    ...(allowSquareFallback ? [{ size: "1024x1024", transport: "multipart", imageField: "image[]" }] : []),
   ];
   let lastMessage = errorLabel;
 
@@ -549,6 +547,7 @@ async function requestImageEditBase64(apiKey, { fullImageBase64, imageMime = "im
       status: "try",
       message: `${attempt.transport}${attempt.imageField ? `:${attempt.imageField}` : ""} / size=${attempt.size}${attempt.input_fidelity ? " / fidelity=high" : ""} で画像編集APIを試行`,
     });
+    traceTextLayer(stage, diagnostics, `try ${attempt.transport} ${attempt.size}`);
     const request = buildImageEditRequest({
       apiKey,
       fullImageBase64,
@@ -568,6 +567,7 @@ async function requestImageEditBase64(apiKey, { fullImageBase64, imageMime = "im
         status: "ok",
         message: `${attempt.transport}${attempt.imageField ? `:${attempt.imageField}` : ""} / size=${attempt.size} で生成成功`,
       });
+      traceTextLayer(stage, diagnostics, `ok ${attempt.transport} ${attempt.size}`);
       return data.data?.[0]?.b64_json || "";
     }
 
@@ -578,12 +578,18 @@ async function requestImageEditBase64(apiKey, { fullImageBase64, imageMime = "im
       message: `${attempt.transport}${attempt.imageField ? `:${attempt.imageField}` : ""} / size=${attempt.size}: ${lastMessage}`,
     });
     console.warn(`OpenAI image-edit error: status=${response.status}, size=${attempt.size}, message=${lastMessage}`);
+    traceTextLayer(stage, diagnostics, `error ${response.status}: ${lastMessage}`);
     if (!shouldRetryImageEdit(lastMessage, response.status)) break;
   }
 
   const error = new Error(lastMessage);
   error.diagnostics = diagnostics;
   throw error;
+}
+
+function traceTextLayer(stage, diagnostics, message) {
+  const tail = diagnostics.slice(-4).map((entry) => `${entry.stage}:${entry.status}`).join(" > ");
+  console.log(`[text-layer ${APP_VERSION}] ${stage}: ${message} (${tail})`);
 }
 
 function buildImageEditRequest({ apiKey, fullImageBase64, imageMime, prompt, attempt }) {
@@ -661,6 +667,7 @@ function formatDiagnosticError(message, diagnostics) {
 async function createTextLayerStyle(apiKey, { fullImageBase64, imageMime = "image/png", headline, textTheme, designPlan, diagnostics = [] }) {
   const fallback = defaultTextLayerStyle();
   diagnostics.push({ stage: "style", status: "try", message: "完成サムネから文字色・影・縁取りを解析します" });
+  traceTextLayer("style", diagnostics, "try");
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -717,19 +724,23 @@ async function createTextLayerStyle(apiKey, { fullImageBase64, imageMime = "imag
     if (!response.ok) {
       const message = data.error?.message || "unknown";
       diagnostics.push({ stage: "style", status: "fallback", message: `解析APIが失敗したため既定スタイルを使います: ${message}` });
+      traceTextLayer("style", diagnostics, `fallback ${response.status}: ${message}`);
       console.warn(`OpenAI text-style error: status=${response.status}, message=${message}`);
       return fallback;
     }
     try {
       const style = normalizeTextLayerStyle({ ...fallback, ...JSON.parse(extractOutputText(data)) });
       diagnostics.push({ stage: "style", status: "ok", message: "文字色・影・縁取りの解析が完了しました" });
+      traceTextLayer("style", diagnostics, "ok");
       return style;
     } catch (error) {
       diagnostics.push({ stage: "style", status: "fallback", message: `解析結果のJSON化に失敗したため既定スタイルを使います: ${error.message}` });
+      traceTextLayer("style", diagnostics, `parse fallback: ${error.message}`);
       return fallback;
     }
   } catch (error) {
     diagnostics.push({ stage: "style", status: "fallback", message: `解析前段で失敗したため既定スタイルを使います: ${error.message}` });
+    traceTextLayer("style", diagnostics, `exception fallback: ${error.message}`);
     return fallback;
   }
 }

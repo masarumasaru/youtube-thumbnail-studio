@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.14";
-const APP_BUILD_TIMESTAMP = "2026-05-25 04:53 JST";
+const APP_VERSION = "0.2.15";
+const APP_BUILD_TIMESTAMP = "2026-05-25 09:52 JST";
 
 const state = {
   moodImages: [],
@@ -335,6 +335,36 @@ function resizeImageDataUrl(img, maxWidth, quality) {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+async function compressTextLayerSource(dataUrl, diagnostics) {
+  const originalLength = dataUrl.length;
+  try {
+    const img = await imageFromDataUrl(dataUrl);
+    const compressed = resizeImageDataUrl(img, 1024, 0.82);
+    diagnostics.push({
+      stage: "client-compress",
+      status: "ok",
+      message: `送信用画像を軽量化しました: ${originalLength} chars -> ${compressed.length} chars`,
+    });
+    return compressed;
+  } catch (error) {
+    diagnostics.push({
+      stage: "client-compress",
+      status: "fallback",
+      message: `送信用画像の軽量化に失敗したため元画像を送ります: ${error.message || error.type || "unknown"}`,
+    });
+    return dataUrl;
+  }
+}
+
+function imageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 function normalizeBrandUrl(value) {
   const raw = value.trim();
   if (!raw) return "";
@@ -591,6 +621,7 @@ async function generateTextLayer() {
       status: "ready",
       message: `imageChars=${state.generatedDesignUrl.length}, headlineChars=${String(headline?.text || headline || "").length}, theme=${textTheme.name}`,
     });
+    const requestImage = await compressTextLayerSource(state.generatedDesignUrl, diagnostics);
     const response = await fetch("/api/text-layer", {
       method: "POST",
       headers: {
@@ -599,7 +630,7 @@ async function generateTextLayer() {
         "X-Client-Version": APP_VERSION,
       },
       body: JSON.stringify({
-        image: state.generatedDesignUrl,
+        image: requestImage,
         headline,
         textTheme,
         designPlan: state.designPlan || {},
