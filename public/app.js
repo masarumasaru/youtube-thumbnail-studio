@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.19";
-const APP_BUILD_TIMESTAMP = "2026-05-26 10:39 JST";
+const APP_VERSION = "0.2.20";
+const APP_BUILD_TIMESTAMP = "2026-05-26 11:03 JST";
 
 const state = {
   moodImages: [],
@@ -982,9 +982,8 @@ async function composeChromaPackageInBrowser(src, chromaKey, styleSpec = {}, dia
     data[i + 3] = a;
   }
 
-  const objectAlpha = sharpenCanvasAlpha(alpha);
+  const objectAlpha = erodeCanvasAlpha(sharpenCanvasAlpha(alpha), canvas.width, canvas.height);
   const layer = new Uint8ClampedArray(data.length);
-  rebuildCanvasShadow(layer, objectAlpha, canvas.width, canvas.height, styleSpec);
   for (let pixel = 0; pixel < objectAlpha.length; pixel += 1) {
     const a = objectAlpha[pixel];
     if (!a) continue;
@@ -1017,6 +1016,8 @@ async function composeChromaPackageInBrowser(src, chromaKey, styleSpec = {}, dia
       checks: [
         `ブラウザ側でクロマキー透過合成しました: ${key.hex}`,
         `実測マット色: ${rgbToHex(matte.r, matte.g, matte.b)}`,
+        "編集しやすい文字素材にするため、抽出後のシャドー再構築は行っていません",
+        "クロマキー縁を抑えるため、文字エッジを約1px内側に締めました",
         despilled ? `クロマキー色のにじみを${despilled}ピクセル補正しました` : "クロマキー色の大きなにじみは検出されませんでした",
         coverage < 0.015 ? "抽出面積が小さく、文字や帯が欠けている可能性があります" : coverage > 0.3 ? "抽出面積が大きめです。文字の重複や不要な装飾が混入していないか確認してください" : "抽出面積は妥当そうです",
       ],
@@ -1104,6 +1105,25 @@ function sharpenCanvasAlpha(alpha) {
     if (value < 64) output[i] = 0;
     else if (value < 190) output[i] = clamp(Math.round(((value - 64) / 126) * 220), 0, 220);
     else output[i] = value;
+  }
+  return output;
+}
+
+function erodeCanvasAlpha(alpha, width, height) {
+  const output = new Uint8ClampedArray(alpha.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      const value = alpha[index];
+      if (!value) continue;
+      let minNeighbor = value;
+      for (let yy = Math.max(0, y - 1); yy <= Math.min(height - 1, y + 1); yy += 1) {
+        for (let xx = Math.max(0, x - 1); xx <= Math.min(width - 1, x + 1); xx += 1) {
+          minNeighbor = Math.min(minNeighbor, alpha[yy * width + xx]);
+        }
+      }
+      output[index] = minNeighbor < 128 ? 0 : Math.round(value * 0.98);
+    }
   }
   return output;
 }

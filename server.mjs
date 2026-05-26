@@ -9,8 +9,8 @@ const port = Number(process.env.PORT || 4173);
 const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = process.env.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = process.env.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.19";
-const APP_BUILD_TIMESTAMP = "2026-05-26 10:39 JST";
+const APP_VERSION = "0.2.20";
+const APP_BUILD_TIMESTAMP = "2026-05-26 11:03 JST";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -1007,6 +1007,8 @@ function buildDesignPrompt({ headline, textTheme, script, moodCount, baseCount, 
     "- Bの元素材画像を主役として使う。人物・商品・画面・場所などの重要要素はできるだけ保つ",
     "- Aの雰囲気参考画像は色、テンション、余白、コントラストの参考にする",
     "- 見出し文字を画像と一体でデザインする。読みやすく、背景になじみ、スマホでも判読できること",
+    "- 見出し文字は上下左右5%以上の安全余白内に完全に収める。キャンバス端で文字が切れる、下端で欠ける、トリミングされる構図は禁止",
+    "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げるか2行内で中央寄せする",
     "- 見出し以外の余計な日本語テキスト、ロゴ風テキスト、架空ラベルは入れない",
     `- 文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
     `- 文字配置は ${designPlan.layout}、処理は ${designPlan.textTreatment}`,
@@ -1036,6 +1038,8 @@ function buildSafeDesignPrompt({ headline, textTheme, script, brandContext, desi
     "- テーマパーク、推し活、ブランド、施設名などは、公式素材やキャラクターを想起させる絵柄にしない",
     "- 見出し以外の日本語テキストやロゴ風文字は入れない",
     "- 16:9の横長サムネイル。見出し文字は大きく読みやすく、背景と一体にデザインする",
+    "- 見出し文字は上下左右5%以上の安全余白内に完全に収める。キャンバス端で文字が切れる、下端で欠ける、トリミングされる構図は禁止",
+    "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げるか2行内で中央寄せする",
     `- 文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
     `- 文字配置は ${designPlan.layout}、処理は ${designPlan.textTreatment}`,
     `- 背景方向性: ${designPlan.backgroundDirection}`,
