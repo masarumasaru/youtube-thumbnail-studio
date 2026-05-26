@@ -12,11 +12,11 @@
         <header class="app-header">
           <p class="eyebrow">Thumbnail Studio</p>
           <h1>YouTubeサムネ制作</h1>
-          <p id="appVersion" class="app-version">Web v0.2.20 / API確認中</p>
+          <p id="appVersion" class="app-version">Web v0.2.21 / API確認中</p>
         </header>
 
         <div class="panel-stack">
-          <details class="input-block api-key-block">
+          <details class="api-key-block compact-api">
             <summary>
               <span>K</span>
               <div>
@@ -34,39 +34,12 @@
             </div>
           </details>
 
-          <section class="input-block brand-block">
-            <div class="block-heading">
-              <span>U</span>
-              <div>
-                <h2>掲載先URL</h2>
-                <p>決まっている場合はブランドの雰囲気を参考にします</p>
-              </div>
-            </div>
-            <input id="brandUrl" class="wide-input" type="url" inputmode="url" placeholder="https://example.com" />
-          </section>
-
-          <section class="input-block">
-            <div class="block-heading">
-              <span>A</span>
-              <div>
-                <h2>雰囲気の参考</h2>
-                <p>色味やテンションの参考にするスクショ</p>
-              </div>
-            </div>
-            <label class="drop-zone" for="moodFiles">
-              <input id="moodFiles" type="file" accept="image/*" multiple />
-              <strong>参考画像を選択</strong>
-              <small>複数枚OK</small>
-            </label>
-            <div id="moodPreview" class="thumb-strip"></div>
-          </section>
-
           <section class="input-block">
             <div class="block-heading">
               <span>B</span>
               <div>
                 <h2>サムネ元素材</h2>
-                <p>見出しを重ねるメイン画像</p>
+                <p>この画像を前提にサムネを作ります</p>
               </div>
             </div>
             <label class="drop-zone" for="baseFiles">
@@ -77,16 +50,59 @@
             <div id="basePreview" class="thumb-strip"></div>
           </section>
 
+          <section class="input-block preservation-block">
+            <div class="block-heading">
+              <span>R</span>
+              <div>
+                <h2>素材保持ルール</h2>
+                <p>元素材をどこまで変えてよいか</p>
+              </div>
+            </div>
+            <div class="segmented-list" id="preservationRule">
+              <label><input type="radio" name="preservationRule" value="exact" />そのまま使う</label>
+              <label><input type="radio" name="preservationRule" value="color" />色調整のみOK</label>
+              <label><input type="radio" name="preservationRule" value="cleanup" checked />不要なものだけ削除OK</label>
+              <label><input type="radio" name="preservationRule" value="effects" />演出追加OK</label>
+            </div>
+          </section>
+
+          <section class="input-block brand-block">
+            <div class="block-heading">
+              <span>U</span>
+              <div>
+                <h2>掲載先URL</h2>
+                <p>ページ本文があれば原稿ソースにも使います</p>
+              </div>
+            </div>
+            <input id="brandUrl" class="wide-input" type="url" inputmode="url" placeholder="https://example.com" />
+          </section>
+
           <section class="input-block script-block">
             <div class="block-heading">
               <span>T</span>
               <div>
-                <h2>テキスト原稿</h2>
-                <p>画像内で語られている内容や台本</p>
+                <h2>追加原稿</h2>
+                <p>URLだけでは足りない時に補足します</p>
               </div>
             </div>
             <textarea id="scriptText" placeholder="例: 新商品のキッチン収納を実際に使ってみたら、想像以上に片付けやすくなった。特に引き出しの奥まで見える設計が便利で..."></textarea>
           </section>
+
+          <details class="input-block optional-block">
+            <summary class="block-heading">
+              <span>A</span>
+              <div>
+                <h2>雰囲気の参考</h2>
+                <p>必要な時だけデザイン参考を追加</p>
+              </div>
+            </summary>
+            <label class="drop-zone" for="moodFiles">
+              <input id="moodFiles" type="file" accept="image/*" multiple />
+              <strong>参考画像を選択</strong>
+              <small>複数枚OK</small>
+            </label>
+            <div id="moodPreview" class="thumb-strip"></div>
+          </details>
 
           <section class="settings-grid single-setting">
             <label>
@@ -151,6 +167,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=0.2.20"></script>
+    <script src="./app.js?v=0.2.21"></script>
   </body>
 </html>

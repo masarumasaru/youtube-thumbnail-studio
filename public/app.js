@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.20";
-const APP_BUILD_TIMESTAMP = "2026-05-26 11:03 JST";
+const APP_VERSION = "0.2.21";
+const APP_BUILD_TIMESTAMP = "2026-05-26 16:45 JST";
 
 const state = {
   moodImages: [],
@@ -48,6 +48,7 @@ const els = {
   basePreview: document.querySelector("#basePreview"),
   scriptText: document.querySelector("#scriptText"),
   brandUrl: document.querySelector("#brandUrl"),
+  preservationRule: document.querySelector("#preservationRule"),
   headlineCount: document.querySelector("#headlineCount"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
   apiKeyStatus: document.querySelector("#apiKeyStatus"),
@@ -240,12 +241,13 @@ function renderThumbs(container, images) {
 async function generateHeadlines() {
   const count = clamp(Number(els.headlineCount.value) || 5, 2, 8);
   const script = els.scriptText.value.trim();
-  if (!script) {
+  const brandUrl = normalizeBrandUrl(els.brandUrl.value);
+  if (!script && !brandUrl) {
     state.headlines = sampleHeadlines(count);
     state.originalHeadlines = [...state.headlines];
     state.textThemes = fallbackTextThemes;
     state.headlineAngles = state.headlines.map(() => "原稿未入力のため仮案");
-    setStatus("原稿が空なので、汎用の見出し案を出しました");
+    setStatus("掲載先URLと原稿が空なので、汎用の見出し案を出しました");
     return true;
   }
 
@@ -281,6 +283,7 @@ async function generateAiHeadlines(script, count) {
       script,
       count,
       brandUrl: normalizeBrandUrl(els.brandUrl.value),
+      preservationRule: getPreservationRule(),
       moodImages: await imagesForAi(state.moodImages),
       baseImages: await imagesForAi(state.baseImages),
     };
@@ -370,6 +373,11 @@ function normalizeBrandUrl(value) {
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
   return `https://${raw}`;
+}
+
+function getPreservationRule() {
+  const selected = document.querySelector('input[name="preservationRule"]:checked');
+  return selected?.value || "cleanup";
 }
 
 function extractSeeds(text) {
@@ -546,6 +554,7 @@ async function generateAiDesign() {
       headers: {
         "Content-Type": "application/json",
         ...(state.apiKey ? { "X-OpenAI-API-Key": state.apiKey } : {}),
+        "X-Client-Version": APP_VERSION,
       },
       body: JSON.stringify({
         headline,
@@ -554,6 +563,7 @@ async function generateAiDesign() {
         brandUrl: normalizeBrandUrl(els.brandUrl.value),
         moodImages: await imagesForAi(state.moodImages),
         baseImages: await imagesForAi(state.baseImages),
+        preservationRule: getPreservationRule(),
       }),
     });
     const data = await response.json();
@@ -631,6 +641,7 @@ async function generateTextLayer() {
         headline,
         textTheme,
         designPlan: state.designPlan || {},
+        preservationRule: getPreservationRule(),
       }),
     });
     diagnostics.push({ stage: "client-response", status: String(response.status), message: `HTTP ${response.status} を受信しました` });

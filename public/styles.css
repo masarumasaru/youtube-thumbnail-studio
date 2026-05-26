@@ -60,7 +60,7 @@ button:hover {
 }
 
 .app-header {
-  margin-bottom: 26px;
+  margin-bottom: 18px;
 }
 
 .app-version {
@@ -140,13 +140,14 @@ h3 {
 }
 
 .api-key-block {
-  padding: 12px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfd;
 }
 
-.api-key-block summary {
+.api-key-block summary,
+.optional-block summary {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -154,7 +155,8 @@ h3 {
   list-style: none;
 }
 
-.api-key-block summary::-webkit-details-marker {
+.api-key-block summary::-webkit-details-marker,
+.optional-block summary::-webkit-details-marker {
   display: none;
 }
 
@@ -171,6 +173,72 @@ h3 {
 }
 
 .api-key-block[open] summary::after {
+  content: "閉じる";
+}
+
+.compact-api h2 {
+  margin-bottom: 1px;
+  font-size: 14px;
+}
+
+.compact-api p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.compact-api summary > span {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+  font-size: 11px;
+}
+
+.compact-api summary::after {
+  line-height: 24px;
+}
+
+.segmented-list {
+  display: grid;
+  gap: 8px;
+}
+
+.segmented-list label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segmented-list label:has(input:checked) {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 1px rgba(15, 143, 138, 0.18);
+}
+
+.optional-block {
+  display: grid;
+  gap: 12px;
+}
+
+.optional-block:not([open]) {
+  gap: 0;
+}
+
+.optional-block summary::after {
+  content: "開く";
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 30px;
+}
+
+.optional-block[open] summary::after {
   content: "閉じる";
 }
 
