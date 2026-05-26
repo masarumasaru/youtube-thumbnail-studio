@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.18";
-const APP_BUILD_TIMESTAMP = "2026-05-26 10:27 JST";
+const APP_VERSION = "0.2.19";
+const APP_BUILD_TIMESTAMP = "2026-05-26 10:39 JST";
 
 const state = {
   moodImages: [],
@@ -996,7 +996,7 @@ async function composeChromaPackageInBrowser(src, chromaKey, styleSpec = {}, dia
   ctx.putImageData(new ImageData(layer, canvas.width, canvas.height), 0, 0);
   const coverage = active / alpha.length;
   const softRatio = active ? soft / active : 0;
-  const score = clamp(Math.round(88 - (coverage < 0.015 ? 32 : 0) - (coverage > 0.42 ? 26 : 0)), 0, 100);
+  const score = clamp(Math.round(88 - (coverage < 0.015 ? 32 : 0) - (coverage > 0.3 ? 16 : 0) - (coverage > 0.42 ? 22 : 0)), 0, 100);
   diagnostics.push({
     stage: "client-compose",
     status: "ok",
@@ -1018,7 +1018,7 @@ async function composeChromaPackageInBrowser(src, chromaKey, styleSpec = {}, dia
         `ブラウザ側でクロマキー透過合成しました: ${key.hex}`,
         `実測マット色: ${rgbToHex(matte.r, matte.g, matte.b)}`,
         despilled ? `クロマキー色のにじみを${despilled}ピクセル補正しました` : "クロマキー色の大きなにじみは検出されませんでした",
-        coverage < 0.015 ? "抽出面積が小さく、文字や帯が欠けている可能性があります" : coverage > 0.42 ? "抽出面積が大きく、不要部分が混入している可能性があります" : "抽出面積は妥当そうです",
+        coverage < 0.015 ? "抽出面積が小さく、文字や帯が欠けている可能性があります" : coverage > 0.3 ? "抽出面積が大きめです。文字の重複や不要な装飾が混入していないか確認してください" : "抽出面積は妥当そうです",
       ],
     },
   };

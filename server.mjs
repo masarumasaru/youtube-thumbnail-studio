@@ -9,8 +9,8 @@ const port = Number(process.env.PORT || 4173);
 const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = process.env.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = process.env.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.18";
-const APP_BUILD_TIMESTAMP = "2026-05-26 10:27 JST";
+const APP_VERSION = "0.2.19";
+const APP_BUILD_TIMESTAMP = "2026-05-26 10:39 JST";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -530,11 +530,14 @@ async function generateChromaTextPackage(apiKey, { fullImageBase64, imageMime, h
     "部屋、人物、家具、写真、商品、壁、床、照明、背景画像は絶対に含めないでください。",
     `背景は全面を完全な単色 ${keyColor.hex} にしてください。アンチエイリアス以外で背景色を文字や装飾に使わないでください。`,
     "完成サムネと同じ16:9キャンバス上で、文字デザインの位置、サイズ、改行、傾きをできるだけ一致させてください。",
+    "見出し文字は完成サムネに表示されている回数だけ、原則1回だけ描いてください。同じ単語や行を追加・複製しないでください。",
+    "完成サムネに存在しない3行目、補足行、反復フレーズ、言い換え文、説明文は絶対に追加しないでください。",
+    "完成サムネで見出しが2行なら2行だけ、1行なら1行だけにしてください。余白を埋めるための文字追加は禁止です。",
     hasBacking
       ? "文字の色分け、金色、赤い強調語、白帯、縁取り、斜めラインがある場合は完成サムネの見た目を優先して再現してください。"
       : "文字の色分け、金色、赤い強調語、縁取りがある場合は完成サムネの見た目を優先して再現してください。完成サムネにない白帯や斜めラインは描かないでください。",
     "背景以外の文字本体・縁取り・帯はできるだけ不透明に描いてください。透明PNGではなく、指定背景色つきPNGを出してください。",
-    `見出し: ${headline}`,
+    `見出し（追加・省略・重複禁止）: ${headline}`,
     `文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
     `設計方針: ${designPlan.backgroundDirection || ""}`,
     "読み取った文字デザイン:",
