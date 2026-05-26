@@ -9,8 +9,8 @@ const port = Number(process.env.PORT || 4173);
 const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = process.env.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = process.env.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.16";
-const APP_BUILD_TIMESTAMP = "2026-05-25 13:14 JST";
+const APP_VERSION = "0.2.17";
+const APP_BUILD_TIMESTAMP = "2026-05-25 16:57 JST";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -361,9 +361,12 @@ async function handleTextLayer(req, res) {
   sendJson(res, 200, {
     model: textLayerImageModel,
     version: appVersionPayload(),
+    processing: textLayerResult.processing || "transparent-png",
     textLayer: `data:image/png;base64,${textLayerResult.textLayerBase64}`,
     mask: textLayerResult.maskBase64 ? `data:image/png;base64,${textLayerResult.maskBase64}` : "",
     quality: textLayerResult.quality,
+    chromaKey: textLayerResult.chromaKey || null,
+    styleSpec: textLayerResult.styleSpec || null,
     diagnostics: textLayerResult.diagnostics || [],
   });
 }
@@ -457,12 +460,14 @@ async function generateTransparentTextLayer(apiKey, { fullImageBase64, imageMime
     return generateTransparentTextLayerLegacy(apiKey, { fullImageBase64, imageMime, headline, textTheme, designPlan, styleSpec, diagnostics });
   }
   if (!packageBase64) return null;
-  const composed = chromaPackageToTransparentPng(packageBase64, keyColor, styleSpec);
-  diagnostics.push({ stage: "compose", status: "ok", message: "クロマキー背景を抜き、影と光彩を再構築しました" });
+  diagnostics.push({ stage: "compose", status: "client", message: "CloudflareのCPU制限を避けるため、透過合成はブラウザ側で実行します" });
   return {
-    textLayerBase64: composed.textLayerBase64,
-    maskBase64: composed.maskBase64,
-    quality: composed.quality,
+    processing: "client-chroma-package",
+    textLayerBase64: packageBase64,
+    maskBase64: "",
+    quality: null,
+    chromaKey: keyColor,
+    styleSpec,
     diagnostics,
   };
 }

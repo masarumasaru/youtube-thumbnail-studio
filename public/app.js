@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.16";
-const APP_BUILD_TIMESTAMP = "2026-05-25 13:14 JST";
+const APP_VERSION = "0.2.17";
+const APP_BUILD_TIMESTAMP = "2026-05-25 16:57 JST";
 
 const state = {
   moodImages: [],
@@ -653,15 +653,21 @@ async function generateTextLayer() {
       error.diagnostics = mergedDiagnostics;
       throw error;
     }
-    state.generatedTextLayerUrl = await normalizeImageToThumbnail(data.textLayer, true).catch((error) => {
-      mergedDiagnostics.push({
-        stage: "client-normalize",
-        status: "fallback",
-        message: `ブラウザ内の1280x720正規化に失敗したため、APIが返したPNGをそのまま使います: ${error.message || error.type || "unknown"}`,
+    if (data.processing === "client-chroma-package") {
+      const composed = await composeChromaPackageInBrowser(data.textLayer, data.chromaKey, data.styleSpec, mergedDiagnostics);
+      state.generatedTextLayerUrl = composed.textLayer;
+      state.generatedTextLayerQuality = composed.quality;
+    } else {
+      state.generatedTextLayerUrl = await normalizeImageToThumbnail(data.textLayer, true).catch((error) => {
+        mergedDiagnostics.push({
+          stage: "client-normalize",
+          status: "fallback",
+          message: `ブラウザ内の1280x720正規化に失敗したため、APIが返したPNGをそのまま使います: ${error.message || error.type || "unknown"}`,
+        });
+        return data.textLayer;
       });
-      return data.textLayer;
-    });
-    state.generatedTextLayerQuality = data.quality || null;
+      state.generatedTextLayerQuality = data.quality || null;
+    }
     renderTextLayerImage(state.generatedTextLayerUrl, state.generatedTextLayerQuality, mergedDiagnostics);
     writeTextLayerCache(cacheKey, {
       ok: true,
@@ -932,6 +938,227 @@ function hashString(value) {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(36);
+}
+
+async function composeChromaPackageInBrowser(src, chromaKey, styleSpec = {}, diagnostics = []) {
+  const image = await imageFromDataUrl(src);
+  const canvas = document.createElement("canvas");
+  canvas.width = 1280;
+  canvas.height = 720;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  drawCover(ctx, image, 0, 0, canvas.width, canvas.height);
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const key = normalizeChromaKey(chromaKey);
+  const matte = estimateCanvasMatteColor(data, canvas.width, canvas.height, key);
+  const alpha = new Uint8ClampedArray(canvas.width * canvas.height);
+  const low = 24;
+  const high = 118;
+  let active = 0;
+  let soft = 0;
+  let despilled = 0;
+
+  for (let pixel = 0; pixel < alpha.length; pixel += 1) {
+    const i = pixel * 4;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const distance = rgbDistance({ r, g, b }, matte);
+    let a = 255;
+    if (distance <= low) a = 0;
+    else if (distance < high) a = clamp(Math.round(((distance - low) / (high - low)) * 255), 0, 255);
+    alpha[pixel] = a;
+    if (a > 12) active += 1;
+    if (a > 12 && a < 180) soft += 1;
+
+    if (a > 0 && a < 255) {
+      const ratio = a / 255;
+      data[i] = clamp(Math.round((r - matte.r * (1 - ratio)) / ratio), 0, 255);
+      data[i + 1] = clamp(Math.round((g - matte.g * (1 - ratio)) / ratio), 0, 255);
+      data[i + 2] = clamp(Math.round((b - matte.b * (1 - ratio)) / ratio), 0, 255);
+      if (despillCanvasPixel(data, i, matte, styleSpec, a)) despilled += 1;
+    }
+    data[i + 3] = a;
+  }
+
+  const objectAlpha = sharpenCanvasAlpha(alpha);
+  const layer = new Uint8ClampedArray(data.length);
+  rebuildCanvasShadow(layer, objectAlpha, canvas.width, canvas.height, styleSpec);
+  for (let pixel = 0; pixel < objectAlpha.length; pixel += 1) {
+    const a = objectAlpha[pixel];
+    if (!a) continue;
+    const i = pixel * 4;
+    compositeCanvasPixel(layer, i, data[i], data[i + 1], data[i + 2], a);
+  }
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.putImageData(new ImageData(layer, canvas.width, canvas.height), 0, 0);
+  const coverage = active / alpha.length;
+  const softRatio = active ? soft / active : 0;
+  const score = clamp(Math.round(88 - (coverage < 0.015 ? 32 : 0) - (coverage > 0.42 ? 26 : 0)), 0, 100);
+  diagnostics.push({
+    stage: "client-compose",
+    status: "ok",
+    message: `Cloudflareではなくブラウザで透過PNGへ合成しました: coverage=${coverage.toFixed(4)}`,
+  });
+
+  return {
+    textLayer: canvas.toDataURL("image/png"),
+    quality: {
+      status: score >= 78 ? "良好" : score >= 55 ? "要確認" : "再生成推奨",
+      score,
+      summary: `品質チェック: ${score >= 78 ? "良好" : score >= 55 ? "要確認" : "再生成推奨"}`,
+      coverage: Number(coverage.toFixed(4)),
+      softRatio: Number(softRatio.toFixed(4)),
+      despilled,
+      chromaKey: key.hex,
+      colorization: { style: styleSpec, mode: "browser-chroma-package" },
+      checks: [
+        `ブラウザ側でクロマキー透過合成しました: ${key.hex}`,
+        `実測マット色: ${rgbToHex(matte.r, matte.g, matte.b)}`,
+        despilled ? `クロマキー色のにじみを${despilled}ピクセル補正しました` : "クロマキー色の大きなにじみは検出されませんでした",
+        coverage < 0.015 ? "抽出面積が小さく、文字や帯が欠けている可能性があります" : coverage > 0.42 ? "抽出面積が大きく、不要部分が混入している可能性があります" : "抽出面積は妥当そうです",
+      ],
+    },
+  };
+}
+
+function normalizeChromaKey(chromaKey) {
+  if (chromaKey && typeof chromaKey === "object" && Number.isFinite(chromaKey.r)) {
+    return {
+      r: clamp(Math.round(chromaKey.r), 0, 255),
+      g: clamp(Math.round(chromaKey.g), 0, 255),
+      b: clamp(Math.round(chromaKey.b), 0, 255),
+      hex: chromaKey.hex || rgbToHex(chromaKey.r, chromaKey.g, chromaKey.b),
+    };
+  }
+  return { r: 0, g: 255, b: 0, hex: "#00ff00" };
+}
+
+function estimateCanvasMatteColor(data, width, height, expected) {
+  const samples = [];
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 120));
+  for (let x = 0; x < width; x += step) {
+    samples.push(canvasPixelAt(data, width, x, 0), canvasPixelAt(data, width, x, height - 1));
+  }
+  for (let y = 0; y < height; y += step) {
+    samples.push(canvasPixelAt(data, width, 0, y), canvasPixelAt(data, width, width - 1, y));
+  }
+  const near = samples.filter((pixel) => rgbDistance(pixel, expected) <= 120);
+  const source = near.length >= Math.max(12, samples.length * 0.12) ? near : samples;
+  return {
+    r: medianNumber(source.map((pixel) => pixel.r)),
+    g: medianNumber(source.map((pixel) => pixel.g)),
+    b: medianNumber(source.map((pixel) => pixel.b)),
+  };
+}
+
+function canvasPixelAt(data, width, x, y) {
+  const i = (y * width + x) * 4;
+  return { r: data[i], g: data[i + 1], b: data[i + 2] };
+}
+
+function medianNumber(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] || 0;
+}
+
+function rgbDistance(a, b) {
+  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+}
+
+function parseHexColor(value, fallback = "#222222") {
+  const match = String(value || fallback).match(/^#?([0-9a-f]{6})$/i);
+  const hex = match ? match[1] : fallback.replace("#", "");
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16),
+  };
+}
+
+function despillCanvasPixel(data, index, matte, styleSpec, alpha) {
+  const target = alpha < 115
+    ? parseHexColor(styleSpec?.shadowColor, "#222222")
+    : parseHexColor(styleSpec?.fillColor, "#ffffff");
+  const before = { r: data[index], g: data[index + 1], b: data[index + 2] };
+  const keyVector = { r: matte.r - target.r, g: matte.g - target.g, b: matte.b - target.b };
+  const pixelVector = { r: before.r - target.r, g: before.g - target.g, b: before.b - target.b };
+  const keyMagnitude = keyVector.r ** 2 + keyVector.g ** 2 + keyVector.b ** 2;
+  if (!keyMagnitude) return false;
+  const projection = (pixelVector.r * keyVector.r + pixelVector.g * keyVector.g + pixelVector.b * keyVector.b) / keyMagnitude;
+  if (projection <= 0) return false;
+  const amount = clamp(projection * (1 - alpha / 255) * 1.25, 0, 0.9);
+  if (amount <= 0.015) return false;
+  data[index] = clamp(Math.round(before.r - keyVector.r * amount), 0, 255);
+  data[index + 1] = clamp(Math.round(before.g - keyVector.g * amount), 0, 255);
+  data[index + 2] = clamp(Math.round(before.b - keyVector.b * amount), 0, 255);
+  return true;
+}
+
+function sharpenCanvasAlpha(alpha) {
+  const output = new Uint8ClampedArray(alpha.length);
+  for (let i = 0; i < alpha.length; i += 1) {
+    const value = alpha[i];
+    if (value < 64) output[i] = 0;
+    else if (value < 190) output[i] = clamp(Math.round(((value - 64) / 126) * 220), 0, 220);
+    else output[i] = value;
+  }
+  return output;
+}
+
+function rebuildCanvasShadow(layer, objectAlpha, width, height, styleSpec = {}) {
+  const opacity = clamp(Number(styleSpec.shadowOpacity ?? 0.28), 0, 1);
+  const blur = clamp(Math.round(Number(styleSpec.shadowBlur ?? 10)), 0, 20);
+  const offsetX = clamp(Math.round(Number(styleSpec.shadowOffsetX ?? 6)), -20, 20);
+  const offsetY = clamp(Math.round(Number(styleSpec.shadowOffsetY ?? 7)), -20, 20);
+  if (opacity <= 0 || blur <= 0) return;
+  const shadowColor = parseHexColor(styleSpec.shadowColor, "#222222");
+  const blurred = blurAlpha(objectAlpha, width, height, blur);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sx = x - offsetX;
+      const sy = y - offsetY;
+      if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
+      const a = Math.round(blurred[sy * width + sx] * opacity * 0.72);
+      if (a) compositeCanvasPixel(layer, (y * width + x) * 4, shadowColor.r, shadowColor.g, shadowColor.b, a);
+    }
+  }
+}
+
+function blurAlpha(alpha, width, height, radius) {
+  const output = new Uint8ClampedArray(alpha.length);
+  const r = Math.max(1, radius);
+  for (let y = 0; y < height; y += 1) {
+    const y0 = Math.max(0, y - r);
+    const y1 = Math.min(height - 1, y + r);
+    for (let x = 0; x < width; x += 1) {
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(width - 1, x + r);
+      let sum = 0;
+      let count = 0;
+      for (let yy = y0; yy <= y1; yy += 2) {
+        for (let xx = x0; xx <= x1; xx += 2) {
+          sum += alpha[yy * width + xx];
+          count += 1;
+        }
+      }
+      output[y * width + x] = Math.round(sum / count);
+    }
+  }
+  return output;
+}
+
+function compositeCanvasPixel(layer, index, r, g, b, alpha) {
+  const srcA = clamp(alpha, 0, 255) / 255;
+  const dstA = layer[index + 3] / 255;
+  const outA = srcA + dstA * (1 - srcA);
+  if (!outA) return;
+  layer[index] = Math.round((r * srcA + layer[index] * dstA * (1 - srcA)) / outA);
+  layer[index + 1] = Math.round((g * srcA + layer[index + 1] * dstA * (1 - srcA)) / outA);
+  layer[index + 2] = Math.round((b * srcA + layer[index + 2] * dstA * (1 - srcA)) / outA);
+  layer[index + 3] = Math.round(outA * 255);
 }
 
 function normalizeImageToThumbnail(src, transparent = false) {
