@@ -12,7 +12,7 @@
         <header class="app-header">
           <p class="eyebrow">Thumbnail Studio</p>
           <h1>YouTubeサムネ制作</h1>
-          <p id="appVersion" class="app-version">Web v0.2.22 / API確認中</p>
+          <p id="appVersion" class="app-version">Web v0.2.23 / API確認中</p>
         </header>
 
         <div class="panel-stack">
@@ -39,13 +39,13 @@
               <span>B</span>
               <div>
                 <h2>サムネ元素材</h2>
-                <p>この画像を前提にサムネを作ります</p>
+                <p>1枚なら主素材、複数枚なら組写真として使います</p>
               </div>
             </div>
             <label class="drop-zone" for="baseFiles">
               <input id="baseFiles" type="file" accept="image/*" multiple />
               <strong>素材画像を選択</strong>
-              <small>複数枚OK</small>
+              <small>複数枚は組写真・比較構図にします</small>
             </label>
             <div id="basePreview" class="thumb-strip"></div>
           </section>
@@ -110,7 +110,7 @@
           </section>
 
           <div class="action-row">
-            <button id="generateBtn" class="primary-action" type="button">生成</button>
+            <button id="generateBtn" class="primary-action tool-action" type="button">見出し案を生成</button>
             <button id="clearBtn" type="button">リセット</button>
           </div>
         </div>
@@ -128,7 +128,7 @@
         <section class="headline-board">
           <div class="section-title">
             <h3>見出し案</h3>
-            <button id="refreshHeadlines" type="button">見出しだけ再生成</button>
+            <button id="refreshHeadlines" class="tool-action" type="button">見出し案を再生成</button>
           </div>
           <div id="headlineList" class="headline-list"></div>
         </section>
@@ -155,14 +155,14 @@
             </div>
           </div>
           <div class="design-generate-row">
-            <button id="generateDesign" type="button">選択見出しとテーマで生成</button>
+            <button id="generateDesign" class="tool-action" type="button">選択見出しでサムネ生成</button>
           </div>
           <div id="designResult" class="design-result">
             <p>見出し案を選んでからAIデザインを生成してください</p>
           </div>
           <div id="downloadActions" class="download-actions" hidden>
-            <button id="downloadDesign" type="button" disabled>完成サムネPNG保存</button>
-            <button id="generateTextLayer" type="button" disabled>文字だけ透過PNG生成</button>
+            <button id="downloadDesign" class="tool-action" type="button" disabled>完成サムネを保存</button>
+            <button id="generateTextLayer" class="tool-action" type="button" disabled>文字だけ透過PNGを生成</button>
           </div>
           <p class="download-note">生成後に、完成サムネPNGと文字だけの透過PNGをそれぞれ保存できます。</p>
           <section id="textLayerSection" class="text-layer-section" hidden>
@@ -173,13 +173,13 @@
               <p>文字だけ透過PNGを生成するとここに表示されます</p>
             </div>
             <div class="text-layer-actions">
-              <button id="downloadTextLayer" type="button" disabled>文字だけ透過PNG保存</button>
+              <button id="downloadTextLayer" class="tool-action" type="button" disabled>文字PNGを保存</button>
             </div>
           </section>
         </section>
       </section>
     </main>
 
-    <script src="./app.js?v=0.2.22"></script>
+    <script src="./app.js?v=0.2.23"></script>
   </body>
 </html>

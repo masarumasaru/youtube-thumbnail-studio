@@ -43,6 +43,26 @@ button:hover {
   border-color: #aeb6c1;
 }
 
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tool-action {
+  min-height: 38px;
+  padding: 0 14px;
+  border-color: #cfd6df;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.primary-action.tool-action {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(330px, 420px) 1fr;
@@ -537,7 +557,7 @@ h3 {
 
 .text-layer-result {
   display: grid;
-  place-items: center stretch;
+  place-items: center;
   gap: 12px;
   min-height: 240px;
   overflow: hidden;
@@ -709,10 +729,26 @@ h3 {
   display: grid;
   gap: 12px;
   text-align: center;
+  justify-items: center;
 }
 
 .loading-box strong {
   font-size: 16px;
+}
+
+.loading-talk {
+  width: 100%;
+  min-height: 3.2em;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.6;
 }
 
 .progress-track {

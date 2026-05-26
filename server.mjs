@@ -9,8 +9,8 @@ const port = Number(process.env.PORT || 4173);
 const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = process.env.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = process.env.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.22";
-const APP_BUILD_TIMESTAMP = "2026-05-26 18:50 JST";
+const APP_VERSION = "0.2.23";
+const APP_BUILD_TIMESTAMP = "2026-05-26 21:06 JST";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -136,7 +136,7 @@ async function handleHeadlines(req, res) {
           schema: {
             type: "object",
             additionalProperties: false,
-            required: ["headlines", "textThemes"],
+            required: ["headlines", "textThemes", "loadingTalks"],
             properties: {
               headlines: {
                 type: "array",
@@ -169,6 +169,31 @@ async function handleHeadlines(req, res) {
                   properties: {
                     name: { type: "string" },
                     direction: { type: "string" },
+                  },
+                },
+              },
+              loadingTalks: {
+                type: "object",
+                additionalProperties: false,
+                required: ["design", "textLayer"],
+                properties: {
+                  design: {
+                    type: "array",
+                    minItems: 4,
+                    maxItems: 8,
+                    items: {
+                      type: "string",
+                      description: "短い日本語の雑談。サムネ生成待ちに表示する。画像の作業実況ではなく、画像内容から連想した感想やエピソード。",
+                    },
+                  },
+                  textLayer: {
+                    type: "array",
+                    minItems: 4,
+                    maxItems: 8,
+                    items: {
+                      type: "string",
+                      description: "短い日本語の雑談。文字だけ生成待ちに表示する。画像や文字から連想した、少し生活感のある感想。",
+                    },
                   },
                 },
               },
@@ -205,6 +230,7 @@ async function handleHeadlines(req, res) {
       angle: String(item.angle || ""),
     })),
     textThemes: normalizeTextThemes(parsed.textThemes),
+    loadingTalks: normalizeLoadingTalks(parsed.loadingTalks),
     referenceReport,
   });
 }
@@ -1059,6 +1085,13 @@ function buildPrompt({ script, count, styleCount, moodCount, baseCount, brandCon
     "- 固定テンプレ名ではなく、この案件のトーンに合わせた名前にする",
     "- directionには、文字の雰囲気、色、配置、強弱、余白の使い方を書く",
     "",
+    "待機中の雑談:",
+    "- loadingTalks.designには、サムネ生成待ちに表示する短い雑談を4〜8個入れる",
+    "- loadingTalks.textLayerには、文字だけ生成待ちに表示する短い雑談を4〜8個入れる",
+    "- 内容は画像を見て連想した感想、行ってみたい、食べてみたい、住んでみたい、日常の小さな想像などにする",
+    "- 「生成中です」「処理しています」「余白が良い」「文字を配置」など制作作業の実況は禁止",
+    "- 画像にない固有名詞や事実は断定しない。断定しにくい場合は「〜っぽい」「〜そう」で軽く言う",
+    "",
     `画像文脈: このメッセージの画像は、先に文字デザイン流用参考 ${styleCount}枚、次に全体雰囲気参考 ${moodCount}枚、最後にBの元素材画像 ${baseCount}枚の順で添付しています。`,
     brandContext.url ? `掲載先ブランド文脈: ${formatBrandContext(brandContext)}` : "掲載先ブランド文脈: 指定なし",
     "",
@@ -1073,7 +1106,9 @@ function buildDesignPrompt({ headline, textTheme, script, styleCount, moodCount,
     "",
     "必須条件:",
     "- 16:9の横長サムネイル",
-    "- Bの元素材画像を主役として使う。人物・商品・画面・場所などの重要要素はできるだけ保つ",
+    baseCount > 1
+      ? "- Bの元素材画像は複数枚あるため、組写真、比較構図、分割レイアウトとして使う。指定素材同士を主役にし、素材にない実写要素は足さない"
+      : "- Bの元素材画像を主役として使う。人物・商品・画面・場所などの重要要素はできるだけ保つ",
     `- ${preservationRuleInstruction(preservationRule)}`,
     "- 文字デザイン流用参考がある場合は、書体の印象、帯、縁取り、色分け、傾き、行間、余白、強弱を厳密に参考にする",
     "- 全体雰囲気参考は色、テンション、余白、コントラストだけをゆるく参考にする",
@@ -1180,6 +1215,40 @@ function normalizeTextTheme(theme) {
     name: String(theme.name || fallback.name).slice(0, 18),
     direction: String(theme.direction || fallback.direction).slice(0, 180),
   };
+}
+
+function fallbackLoadingTalks() {
+  return {
+    design: [
+      "この写真、あとで見返した時にちょっと思い出が増えてそう。",
+      "ここ、休日の午後にふらっと寄ったら気分が変わりそう。",
+      "画面の外でまだ何か続いていそうで、少し気になる。",
+      "こういう空気の日は、帰り道に甘いものを買いたくなる。",
+    ],
+    textLayer: [
+      "文字だけになると、急に身軽になってどこかへ行きそう。",
+      "この文字、別の背景に引っ越しても意外と楽しく暮らしそう。",
+      "今日の文字は、少しだけ荷物を減らして出かける感じがする。",
+      "背景から離れても、まださっきの空気を覚えていそう。",
+    ],
+  };
+}
+
+function normalizeLoadingTalks(talks) {
+  const fallback = fallbackLoadingTalks();
+  return {
+    design: normalizeTalkList(talks?.design, fallback.design),
+    textLayer: normalizeTalkList(talks?.textLayer, fallback.textLayer),
+  };
+}
+
+function normalizeTalkList(list, fallback) {
+  if (!Array.isArray(list)) return fallback;
+  const cleaned = list
+    .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+    .filter((item) => item.length >= 8 && item.length <= 90)
+    .slice(0, 8);
+  return cleaned.length ? cleaned : fallback;
 }
 
 function extractOutputText(data) {

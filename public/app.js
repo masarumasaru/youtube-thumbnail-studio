@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.22";
-const APP_BUILD_TIMESTAMP = "2026-05-26 18:50 JST";
+const APP_VERSION = "0.2.23";
+const APP_BUILD_TIMESTAMP = "2026-05-26 21:06 JST";
 
 const state = {
   moodImages: [],
@@ -20,6 +20,11 @@ const state = {
   designPlan: null,
   referenceReport: "",
   textThemes: [],
+  loadingTalks: {
+    design: [],
+    textLayer: [],
+  },
+  loadingTalkTimer: null,
   palette: ["#e63b2e", "#0f8f8a", "#f3c230"],
   apiKey: localStorage.getItem(API_KEY_STORAGE) || sessionStorage.getItem(API_KEY_STORAGE) || "",
   apiVersion: "",
@@ -150,6 +155,8 @@ els.clearBtn.addEventListener("click", () => {
   state.designPlan = null;
   state.referenceReport = "";
   state.textThemes = [];
+  state.loadingTalks = { design: [], textLayer: [] };
+  stopLoadingTalk();
   state.palette = ["#e63b2e", "#0f8f8a", "#f3c230"];
   els.moodFiles.value = "";
   els.styleFiles.value = "";
@@ -263,6 +270,7 @@ async function generateHeadlines() {
     state.headlines = sampleHeadlines(count);
     state.originalHeadlines = [...state.headlines];
     state.textThemes = fallbackTextThemes;
+    state.loadingTalks = fallbackLoadingTalks();
     state.headlineAngles = state.headlines.map(() => "原稿未入力のため仮案");
     setStatus("掲載先URLと原稿が空なので、汎用の見出し案を出しました");
     return true;
@@ -285,6 +293,7 @@ async function generateHeadlines() {
   state.originalHeadlines = [...state.headlines];
   state.headlineAngles = result.headlines.map((item) => item.angle || "AI生成");
   state.textThemes = result.textThemes.length ? result.textThemes : fallbackTextThemes;
+  state.loadingTalks = normalizeLoadingTalks(result.loadingTalks);
   state.referenceReport = result.referenceReport || "";
   state.selectedHeadlineIndex = 0;
   state.textStyleIndex = 0;
@@ -325,6 +334,7 @@ async function generateAiHeadlines(script, count) {
       model: data.model || "OpenAI",
       headlines: Array.isArray(data.headlines) ? data.headlines : [],
       textThemes: Array.isArray(data.textThemes) ? data.textThemes : [],
+      loadingTalks: data.loadingTalks || null,
       referenceReport: data.referenceReport || "",
     };
   } catch (error) {
@@ -390,6 +400,58 @@ function normalizeBrandUrl(value) {
   if (!raw) return "";
   if (/^https?:\/\//i.test(raw)) return raw;
   return `https://${raw}`;
+}
+
+function fallbackLoadingTalks() {
+  return {
+    design: [
+      "この写真、何か始まりそうな空気がある。",
+      "ここにいると、会話の途中で急にいい案が出そう。",
+      "こういう場面、あとで見返すとじわじわ好きになるやつ。",
+      "画面の外にもまだ続きがありそうで、ちょっと気になる。",
+    ],
+    textLayer: [
+      "文字だけになると、急に身軽になりそう。",
+      "背景から離れても、ちゃんと主張してくれそうな文字たち。",
+      "この文字、別の場所に引っ越しても元気にやれそう。",
+      "今日は荷物少なめで出かける文字、という感じがする。",
+    ],
+  };
+}
+
+function normalizeLoadingTalks(talks) {
+  const fallback = fallbackLoadingTalks();
+  return {
+    design: normalizeTalkList(talks?.design, fallback.design),
+    textLayer: normalizeTalkList(talks?.textLayer, fallback.textLayer),
+  };
+}
+
+function normalizeTalkList(list, fallback) {
+  if (!Array.isArray(list)) return fallback;
+  const cleaned = list
+    .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+    .filter((item) => item.length >= 8 && item.length <= 90)
+    .slice(0, 8);
+  return cleaned.length ? cleaned : fallback;
+}
+
+function startLoadingTalk(kind, target) {
+  stopLoadingTalk();
+  const talks = normalizeTalkList(state.loadingTalks?.[kind], fallbackLoadingTalks()[kind]);
+  let index = 0;
+  target.textContent = talks[index];
+  state.loadingTalkTimer = window.setInterval(() => {
+    index = (index + 1) % talks.length;
+    target.textContent = talks[index];
+  }, 3600);
+}
+
+function stopLoadingTalk() {
+  if (state.loadingTalkTimer) {
+    window.clearInterval(state.loadingTalkTimer);
+    state.loadingTalkTimer = null;
+  }
 }
 
 function getPreservationRule() {
@@ -563,7 +625,7 @@ async function generateAiDesign() {
 
   const headline = state.headlines[state.selectedHeadlineIndex] || state.headlines[0];
   const textTheme = (state.textThemes.length ? state.textThemes : fallbackTextThemes)[state.textStyleIndex] || fallbackTextThemes[0];
-  showDesignLoading("AIが完成サムネを生成中", "背景と文字を一体でデザインした後、文字だけの透過PNGを別生成します。");
+  showDesignLoading("AIが完成サムネを生成中", "写真を眺めながら、少しだけ雑談しています。");
   setDesignBusy(true, "AIが全体デザインと文字レイヤー方針を設計しています");
   try {
     const response = await fetch("/api/design", {
@@ -617,7 +679,7 @@ async function generateTextLayer() {
     return;
   }
 
-  showTextLayerLoading("文字だけ透過PNGを生成中", "AIが文字マスクを作成し、完成サムネの色を保持したまま透過PNGへ合成しています。");
+  showTextLayerLoading("文字だけ透過PNGを生成中", "文字だけ抜けるまで、もう少しだけ眺めています。");
   setDesignBusy(true, "AIが文字マスクを生成し、品質チェックしています");
   const diagnostics = [{
     stage: "client",
@@ -721,6 +783,7 @@ async function generateTextLayer() {
 }
 
 function resetDesignResult(message) {
+  stopLoadingTalk();
   state.generatedDesignUrl = "";
   state.generatedBackgroundUrl = "";
   state.generatedTextLayerUrl = "";
@@ -741,6 +804,7 @@ function resetDesignResult(message) {
 }
 
 function showDesignReadyForTheme(message) {
+  stopLoadingTalk();
   state.generatedDesignUrl = "";
   state.generatedBackgroundUrl = "";
   state.generatedTextLayerUrl = "";
@@ -757,6 +821,7 @@ function showDesignReadyForTheme(message) {
 }
 
 function showDesignLoading(title, detail) {
+  stopLoadingTalk();
   els.downloadDesign.disabled = true;
   els.generateTextLayer.disabled = true;
   els.downloadTextLayer.disabled = true;
@@ -767,16 +832,20 @@ function showDesignLoading(title, detail) {
   strong.textContent = title;
   const p = document.createElement("p");
   p.textContent = detail;
+  const talk = document.createElement("p");
+  talk.className = "loading-talk";
   const track = document.createElement("div");
   track.className = "progress-track";
   const bar = document.createElement("div");
   bar.className = "progress-bar";
   track.appendChild(bar);
-  box.append(strong, p, track);
+  box.append(strong, p, talk, track);
   els.designResult.appendChild(box);
+  startLoadingTalk("design", talk);
 }
 
 function showTextLayerLoading(title, detail) {
+  stopLoadingTalk();
   els.textLayerSection.hidden = false;
   els.downloadTextLayer.disabled = true;
   els.textLayerResult.innerHTML = "";
@@ -786,16 +855,20 @@ function showTextLayerLoading(title, detail) {
   strong.textContent = title;
   const p = document.createElement("p");
   p.textContent = detail;
+  const talk = document.createElement("p");
+  talk.className = "loading-talk";
   const track = document.createElement("div");
   track.className = "progress-track";
   const bar = document.createElement("div");
   bar.className = "progress-bar";
   track.appendChild(bar);
-  box.append(strong, p, track);
+  box.append(strong, p, talk, track);
   els.textLayerResult.appendChild(box);
+  startLoadingTalk("textLayer", talk);
 }
 
 function resetTextLayerResult(message = "文字だけ透過PNGを生成するとここに表示されます") {
+  stopLoadingTalk();
   state.generatedTextLayerUrl = "";
   state.generatedTextLayerQuality = null;
   els.downloadTextLayer.disabled = true;
@@ -807,6 +880,7 @@ function resetTextLayerResult(message = "文字だけ透過PNGを生成すると
 }
 
 function showTextLayerError(message, diagnostics = []) {
+  stopLoadingTalk();
   state.generatedTextLayerUrl = "";
   state.generatedTextLayerQuality = null;
   els.downloadTextLayer.disabled = true;
@@ -841,6 +915,7 @@ function syncVersionUi() {
 }
 
 function renderTextLayerImage(src, quality = null, diagnostics = []) {
+  stopLoadingTalk();
   els.textLayerSection.hidden = false;
   els.textLayerResult.innerHTML = "";
   const img = document.createElement("img");
@@ -901,6 +976,7 @@ function renderReferenceReport(report) {
 }
 
 async function renderGeneratedImages(imageUrl, textLayerUrl, options = {}) {
+  stopLoadingTalk();
   state.generatedDesignUrl = options.alreadyNormalized ? imageUrl : await normalizeImageToThumbnail(imageUrl);
   state.generatedTextLayerUrl = textLayerUrl ? (options.alreadyNormalized ? textLayerUrl : await normalizeImageToThumbnail(textLayerUrl, true)) : "";
   state.generatedTextLayerQuality = textLayerUrl ? options.textLayerQuality || state.generatedTextLayerQuality || null : null;
