@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.23";
-const APP_BUILD_TIMESTAMP = "2026-05-26 21:06 JST";
+const APP_VERSION = "0.2.24";
+const APP_BUILD_TIMESTAMP = "2026-05-26 23:31 JST";
 
 const state = {
   moodImages: [],
@@ -18,6 +18,7 @@ const state = {
   designCache: new Map(),
   textStyleIndex: 0,
   designPlan: null,
+  promptDebug: null,
   referenceReport: "",
   textThemes: [],
   loadingTalks: {
@@ -69,6 +70,7 @@ const els = {
   designResult: document.querySelector("#designResult"),
   textStyleControls: document.querySelector("#textStyleControls"),
   referenceReport: document.querySelector("#referenceReport"),
+  promptReport: document.querySelector("#promptReport"),
   downloadActions: document.querySelector("#downloadActions"),
   textLayerSection: document.querySelector("#textLayerSection"),
   textLayerResult: document.querySelector("#textLayerResult"),
@@ -153,6 +155,7 @@ els.clearBtn.addEventListener("click", () => {
   state.designCache = new Map();
   state.textStyleIndex = 0;
   state.designPlan = null;
+  state.promptDebug = null;
   state.referenceReport = "";
   state.textThemes = [];
   state.loadingTalks = { design: [], textLayer: [] };
@@ -168,6 +171,7 @@ els.clearBtn.addEventListener("click", () => {
   els.basePreview.innerHTML = "";
   els.headlineList.innerHTML = "";
   renderReferenceReport("");
+  renderPromptReport(null);
   resetDesignResult("見出し案を選んでからAIデザインを生成してください");
   setStatus("素材と原稿を入れて生成してください");
 });
@@ -195,7 +199,8 @@ els.downloadTextLayer.addEventListener("click", () => {
     return;
   }
   downloadDataUrl(state.generatedTextLayerUrl, "youtube-thumbnail-text-layer.png");
-  setStatus("文字だけ透過PNGの保存を開始しました");
+  const caution = state.generatedTextLayerQuality?.status === "再生成推奨" ? "品質注意つきで" : "";
+  setStatus(`文字だけ透過PNGを${caution}保存します`);
 });
 
 setupDropZone(document.querySelector("label[for='moodFiles']"), setMoodImages);
@@ -598,8 +603,10 @@ function renderTextStyleControls() {
       const cached = getCachedDesign();
       if (cached) {
         state.designPlan = cached.designPlan || state.designPlan;
+        state.promptDebug = cached.promptDebug || state.promptDebug;
         renderGeneratedImages(cached.image, cached.textLayer, { alreadyNormalized: true, textLayerQuality: cached.textLayerQuality || null });
         renderReferenceReport(cached.referenceReport || state.referenceReport);
+        renderPromptReport(state.promptDebug || state.designPlan);
         setStatus("生成済みの文字テーマを表示しました");
       } else {
         showDesignReadyForTheme("この文字テーマでは未生成です。選択見出しで生成してください");
@@ -649,9 +656,11 @@ async function generateAiDesign() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || data.error || "AIデザイン生成に失敗しました");
     state.designPlan = data.designPlan || null;
+    state.promptDebug = data.promptDebug || null;
     state.referenceReport = data.referenceReport || "";
     renderTextStyleControls();
     renderReferenceReport(state.referenceReport);
+    renderPromptReport(state.promptDebug || state.designPlan);
     await renderGeneratedImages(data.image, "");
     state.designCache.set(designCacheKey(), {
       image: state.generatedDesignUrl,
@@ -659,6 +668,7 @@ async function generateAiDesign() {
       textLayerQuality: null,
       referenceReport: state.referenceReport,
       designPlan: state.designPlan,
+      promptDebug: state.promptDebug,
     });
     setStatus(`AIデザイン生成成功: ${data.model || "OpenAI"}`);
   } catch (error) {
@@ -696,7 +706,7 @@ async function generateTextLayer() {
       state.generatedTextLayerUrl = cachedResult.textLayer;
       state.generatedTextLayerQuality = cachedResult.quality || null;
       renderTextLayerImage(state.generatedTextLayerUrl, state.generatedTextLayerQuality, [...diagnostics, ...(cachedResult.diagnostics || [])]);
-      els.downloadTextLayer.disabled = state.generatedTextLayerQuality?.status === "再生成推奨";
+      els.downloadTextLayer.disabled = false;
       setStatus("キャッシュ済みの文字だけ透過PNGを表示しました。APIは使っていません");
       return;
     }
@@ -772,8 +782,8 @@ async function generateTextLayer() {
       cached.textLayerQuality = state.generatedTextLayerQuality;
     }
     const failedQuality = state.generatedTextLayerQuality?.status === "再生成推奨";
-    els.downloadTextLayer.disabled = failedQuality;
-    setStatus(failedQuality ? "文字だけ透過PNGを生成しましたが、品質チェックで再生成推奨です" : "文字だけ透過PNGを生成しました");
+    els.downloadTextLayer.disabled = false;
+    setStatus(failedQuality ? "文字だけ透過PNGを生成しました。品質注意つきで保存できます" : "文字だけ透過PNGを生成しました");
   } catch (error) {
     showTextLayerError(`文字だけ透過PNG生成に失敗しました: ${error.message}`, error.diagnostics?.length ? error.diagnostics : diagnostics);
     setStatus(`文字だけ透過PNG生成に失敗しました: ${error.message}`);
@@ -792,6 +802,8 @@ function resetDesignResult(message) {
   els.generateTextLayer.disabled = true;
   els.downloadTextLayer.disabled = true;
   els.downloadActions.hidden = true;
+  state.promptDebug = null;
+  renderPromptReport(null);
   resetTextLayerResult();
   els.designResult.innerHTML = "";
   const p = document.createElement("p");
@@ -813,6 +825,8 @@ function showDesignReadyForTheme(message) {
   els.generateTextLayer.disabled = true;
   els.downloadTextLayer.disabled = true;
   els.downloadActions.hidden = false;
+  state.promptDebug = null;
+  renderPromptReport(null);
   resetTextLayerResult();
   els.designResult.innerHTML = "";
   const p = document.createElement("p");
@@ -933,7 +947,7 @@ function renderQualityReport(quality) {
   title.textContent = `${quality.summary || "品質チェック"} / ${quality.score ?? "-"}点`;
   const note = document.createElement("p");
   note.textContent = quality.status === "再生成推奨"
-    ? "保存は無効です。マスクがずれている可能性が高いので、もう一度生成してください。"
+    ? "マスクがずれている可能性があります。保存はできますが、再生成も検討してください。"
     : "完成サムネとの差分をもとに自動判定しています。";
   const list = document.createElement("ul");
   for (const check of quality.checks || []) {
@@ -973,6 +987,23 @@ function renderReferenceReport(report) {
   const body = document.createElement("div");
   body.textContent = report;
   els.referenceReport.append(title, body);
+}
+
+function renderPromptReport(debug) {
+  if (!els.promptReport) return;
+  const pre = els.promptReport.querySelector("pre");
+  const hasDebug = Boolean(debug);
+  els.promptReport.hidden = !hasDebug;
+  if (!pre) return;
+  if (!hasDebug) {
+    pre.textContent = "";
+    return;
+  }
+  if (typeof debug === "string") {
+    pre.textContent = debug;
+    return;
+  }
+  pre.textContent = JSON.stringify(debug, null, 2);
 }
 
 async function renderGeneratedImages(imageUrl, textLayerUrl, options = {}) {
@@ -1197,11 +1228,19 @@ function despillCanvasPixel(data, index, matte, styleSpec, alpha) {
   if (!keyMagnitude) return false;
   const projection = (pixelVector.r * keyVector.r + pixelVector.g * keyVector.g + pixelVector.b * keyVector.b) / keyMagnitude;
   if (projection <= 0) return false;
-  const amount = clamp(projection * (1 - alpha / 255) * 1.25, 0, 0.9);
+  const chromaDistance = rgbDistance(before, matte);
+  const edgeWeight = alpha < 230 ? 1 - alpha / 255 : 0;
+  const amount = clamp(projection * edgeWeight * 1.8 + (chromaDistance < 180 ? edgeWeight * 0.28 : 0), 0, 0.95);
   if (amount <= 0.015) return false;
-  data[index] = clamp(Math.round(before.r - keyVector.r * amount), 0, 255);
-  data[index + 1] = clamp(Math.round(before.g - keyVector.g * amount), 0, 255);
-  data[index + 2] = clamp(Math.round(before.b - keyVector.b * amount), 0, 255);
+  const corrected = {
+    r: clamp(Math.round(before.r - keyVector.r * amount), 0, 255),
+    g: clamp(Math.round(before.g - keyVector.g * amount), 0, 255),
+    b: clamp(Math.round(before.b - keyVector.b * amount), 0, 255),
+  };
+  const targetBlend = clamp(edgeWeight * 0.42, 0, 0.42);
+  data[index] = Math.round(corrected.r * (1 - targetBlend) + target.r * targetBlend);
+  data[index + 1] = Math.round(corrected.g * (1 - targetBlend) + target.g * targetBlend);
+  data[index + 2] = Math.round(corrected.b * (1 - targetBlend) + target.b * targetBlend);
   return true;
 }
 

@@ -4,8 +4,8 @@ const runtimeEnv = typeof process !== "undefined" ? process.env : {};
 const model = runtimeEnv.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = runtimeEnv.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = runtimeEnv.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.23";
-const APP_BUILD_TIMESTAMP = "2026-05-26 21:06 JST";
+const APP_VERSION = "0.2.24";
+const APP_BUILD_TIMESTAMP = "2026-05-26 23:31 JST";
 
 export async function handleApiRequest(request, env = {}) {
   const url = new URL(request.url);
@@ -260,6 +260,7 @@ async function handleDesign(req, res) {
     headline,
     textTheme,
     script,
+    styleImages,
     styleCount: styleImages.length,
     moodCount: moodImages.length,
     baseCount: baseImages.length,
@@ -283,6 +284,7 @@ async function handleDesign(req, res) {
   });
   let response = first.response;
   let data = first.data;
+  let promptDebug = first.promptDebug;
   let usedSafetyFallback = false;
   if (!response.ok && isSafetyRejection(data)) {
     console.warn(`OpenAI design safety retry: request rejected, retrying safe fallback`);
@@ -300,6 +302,7 @@ async function handleDesign(req, res) {
     });
     response = retry.response;
     data = retry.data;
+    promptDebug = retry.promptDebug;
     usedSafetyFallback = true;
   }
   if (!response.ok) {
@@ -320,6 +323,7 @@ async function handleDesign(req, res) {
     model: designModel,
     image: `data:image/png;base64,${imageBase64}`,
     designPlan,
+    promptDebug,
     referenceReport: usedSafetyFallback
       ? `${designPlan.referenceReport || fallbackReferenceReport({ brandContext, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length })}。安全判定を避けるため、人物の顔・子ども・商標/キャラクターの直接描写を避けた抽象寄せで再生成しました`
       : designPlan.referenceReport || fallbackReferenceReport({ brandContext, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length }),
@@ -408,12 +412,13 @@ function appVersionPayload() {
 }
 
 async function requestDesignImage(apiKey, { headline, textTheme, script, styleImages = [], moodImages, baseImages, brandContext, designPlan, preservationRule, safeFallback }) {
+  const prompt = safeFallback
+    ? buildSafeDesignPrompt({ headline, textTheme, script, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan, preservationRule })
+    : buildDesignPrompt({ headline, textTheme, script, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan, preservationRule });
   const content = [
     {
       type: "input_text",
-      text: safeFallback
-        ? buildSafeDesignPrompt({ headline, textTheme, script, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan, preservationRule })
-        : buildDesignPrompt({ headline, textTheme, script, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan, preservationRule }),
+      text: prompt,
     },
     ...styleImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
     ...moodImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
@@ -440,7 +445,16 @@ async function requestDesignImage(apiKey, { headline, textTheme, script, styleIm
       ],
     }),
   });
-  return { response, data: await response.json() };
+  return {
+    response,
+    data: await response.json(),
+    promptDebug: {
+      mode: safeFallback ? "safe-fallback" : "normal",
+      styleLockSpec: designPlan.styleLockSpec || "",
+      textLayoutBox: designPlan.textLayoutBox || "",
+      generationPrompt: prompt,
+    },
+  };
 }
 
 function isSafetyRejection(data) {
@@ -448,7 +462,7 @@ function isSafetyRejection(data) {
   return /safety|rejected|policy|moderation/i.test(message);
 }
 
-async function createDesignPlan(apiKey, { headline, textTheme, script, styleCount, moodCount, baseCount, brandContext, preservationRule }) {
+async function createDesignPlan(apiKey, { headline, textTheme, script, styleImages = [], styleCount, moodCount, baseCount, brandContext, preservationRule }) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -472,10 +486,16 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, styleCoun
                 `選択文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
                 `原稿: ${script || "未入力"}`,
                 `文字デザイン流用参考: ${styleCount}枚 / 全体雰囲気参考: ${moodCount}枚 / B元素材: ${baseCount}枚`,
+                styleCount
+                  ? "文字デザイン流用参考がある場合は、見た目を雰囲気で言い換えず、書体傾向、斜体の有無、文字色、縁取り、帯、配置、禁止事項をstyleLockSpecに固定仕様として書いてください。参考と違う斜体化、丸ゴシック化、色変更、中央寄せ化は禁止事項として明記してください。"
+                  : "文字デザイン流用参考はありません。styleLockSpecには、選択文字テーマから守るべき最低限の文字仕様を書いてください。",
+                "textLayoutBoxには、1280x720キャンバス前提で、文字と帯が切れない安全領域・配置ボックスをJSON風の短い文字列で書いてください。文字・帯・縁取り・影を含む外接矩形が必ずその中に入るよう、x,y,w,hとalignを書いてください。",
+                "promptNoteには、AI画像生成へ渡す上で最も重要な固定指示を短くまとめてください。",
                 `掲載先ブランド: ${brandContext.url ? formatBrandContext(brandContext) : "指定なし"}`,
                 preservationRuleInstruction(preservationRule),
               ].join("\n"),
             },
+            ...styleImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "high" })),
           ],
         },
       ],
@@ -487,7 +507,7 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, styleCoun
           schema: {
             type: "object",
             additionalProperties: false,
-            required: ["layout", "textTreatment", "accentColor", "subAccentColor", "textColor", "strokeColor", "panelColor", "fontSize", "backgroundDirection", "referenceReport"],
+            required: ["layout", "textTreatment", "accentColor", "subAccentColor", "textColor", "strokeColor", "panelColor", "fontSize", "backgroundDirection", "styleLockSpec", "textLayoutBox", "promptNote", "referenceReport"],
             properties: {
               layout: { type: "string", enum: ["left", "right", "lower"] },
               textTreatment: { type: "string", enum: ["editorial", "sticker", "slash", "lower"] },
@@ -498,6 +518,9 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, styleCoun
               panelColor: { type: "string" },
               fontSize: { type: "number" },
               backgroundDirection: { type: "string" },
+              styleLockSpec: { type: "string" },
+              textLayoutBox: { type: "string" },
+              promptNote: { type: "string" },
               referenceReport: { type: "string" },
             },
           },
@@ -1106,11 +1129,17 @@ function buildDesignPrompt({ headline, textTheme, script, styleCount, moodCount,
     "- 見出し文字を画像と一体でデザインする。読みやすく、背景になじみ、スマホでも判読できること",
     "- 出力画像は最終的に16:9へクロップされる前提で、見出し文字と帯は上下左右8%以上の安全余白内に完全に収める",
     "- キャンバス端、下端、上端、左右端で文字や帯が切れる、欠ける、見切れる、トリミングされる構図は禁止",
-    "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げる、2行にする、余白側へ寄せ直す",
+    "- 1280x720の最終画像として、見出し文字・帯・縁取り・影の外接矩形が配置ボックス内に完全に入っている状態を完成形にする",
+    "- 文字を大きくする場合も全文が見えることを最優先し、必要なら文字サイズを下げる、2行にする、余白側へ寄せ直す。迫力より欠けないことを優先する",
     "- 見出し以外の余計な日本語テキスト、ロゴ風テキスト、架空ラベルは入れない",
     `- 文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
     `- 文字配置は ${designPlan.layout}、処理は ${designPlan.textTreatment}`,
     `- 背景方向性: ${designPlan.backgroundDirection}`,
+    designPlan.styleLockSpec ? `- 文字デザイン固定仕様: ${designPlan.styleLockSpec}` : "",
+    designPlan.textLayoutBox ? `- 配置ボックス固定仕様: ${designPlan.textLayoutBox}` : "",
+    designPlan.promptNote ? `- 固定指示メモ: ${designPlan.promptNote}` : "",
+    "- 文字デザイン流用参考がある場合、書体を斜体化・丸ゴシック化・別色化・中央寄せ化などで再解釈しない",
+    "- 文字と帯の外接矩形全体を配置ボックス内に収め、端で見切れる構図を避ける。参照デザインが画面端に近くても、最終画像では安全余白を優先する",
     "- クリックベイト感より、内容と一致する強い訴求を優先する",
     "",
     `画像文脈: このメッセージの画像は、先に文字デザイン流用参考 ${styleCount}枚、次に全体雰囲気参考 ${moodCount}枚、最後にBの元素材画像 ${baseCount}枚の順で添付しています。`,
@@ -1138,10 +1167,13 @@ function buildSafeDesignPrompt({ headline, textTheme, script, brandContext, desi
     "- 16:9の横長サムネイル。見出し文字は大きく読みやすく、背景と一体にデザインする",
     "- 見出し文字は上下左右8%以上の安全余白内に完全に収める。キャンバス端で文字が切れる、下端で欠ける、トリミングされる構図は禁止",
     `- ${preservationRuleInstruction(preservationRule)}`,
-    "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げるか2行内で中央寄せする",
+    "- 1280x720の最終画像として、見出し文字・帯・縁取り・影の外接矩形が配置ボックス内に完全に入っている状態を完成形にする",
+    "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げるか2行内に収める",
     `- 文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
     `- 文字配置は ${designPlan.layout}、処理は ${designPlan.textTreatment}`,
     `- 背景方向性: ${designPlan.backgroundDirection}`,
+    designPlan.styleLockSpec ? `- 文字デザイン固定仕様: ${designPlan.styleLockSpec}` : "",
+    designPlan.textLayoutBox ? `- 配置ボックス固定仕様: ${designPlan.textLayoutBox}` : "",
     brandContext.url ? `掲載先ブランド文脈: ${formatBrandContext(brandContext)}` : "掲載先ブランド文脈: 指定なし",
     "",
     "サムネに描画する見出し。できるだけこの内容を正確に使ってください:",
@@ -1163,6 +1195,9 @@ function defaultDesignPlan({ brandContext, styleCount = 0, moodCount, baseCount 
     panelColor: "#000000",
     fontSize: 104,
     backgroundDirection: "Bの元素材を主役に、左から中央にかけて見出し用の暗め余白を作る",
+    styleLockSpec: "文字テーマに沿って、斜体化や過度な別書体化を避け、読みやすい太さと配色を保つ",
+    textLayoutBox: "canvas=1280x720; safeArea={x:64,y:58,w:1152,h:604}; textBox={x:72,y:404,w:880,h:244}; rule=文字・帯・縁取り・影の外接矩形をtextBox内に収める",
+    promptNote: "文字と帯は最終16:9で見切れない配置にする",
     referenceReport: fallbackReferenceReport({ brandContext, styleCount, moodCount, baseCount }),
   };
 }

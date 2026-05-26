@@ -680,6 +680,40 @@ h3 {
   display: none;
 }
 
+.prompt-report {
+  margin: -2px 0 12px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.prompt-report[hidden] {
+  display: none;
+}
+
+.prompt-report summary {
+  padding: 12px;
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.prompt-report pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .design-options {
   display: grid;
   gap: 10px;
