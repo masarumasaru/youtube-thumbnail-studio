@@ -12,7 +12,7 @@
         <header class="app-header">
           <p class="eyebrow">Thumbnail Studio</p>
           <h1>YouTubeサムネ制作</h1>
-          <p id="appVersion" class="app-version">Web v0.2.21 / API確認中</p>
+          <p id="appVersion" class="app-version">Web v0.2.22 / API確認中</p>
         </header>
 
         <div class="panel-stack">
@@ -50,22 +50,6 @@
             <div id="basePreview" class="thumb-strip"></div>
           </section>
 
-          <section class="input-block preservation-block">
-            <div class="block-heading">
-              <span>R</span>
-              <div>
-                <h2>素材保持ルール</h2>
-                <p>元素材をどこまで変えてよいか</p>
-              </div>
-            </div>
-            <div class="segmented-list" id="preservationRule">
-              <label><input type="radio" name="preservationRule" value="exact" />そのまま使う</label>
-              <label><input type="radio" name="preservationRule" value="color" />色調整のみOK</label>
-              <label><input type="radio" name="preservationRule" value="cleanup" checked />不要なものだけ削除OK</label>
-              <label><input type="radio" name="preservationRule" value="effects" />演出追加OK</label>
-            </div>
-          </section>
-
           <section class="input-block brand-block">
             <div class="block-heading">
               <span>U</span>
@@ -92,16 +76,30 @@
             <summary class="block-heading">
               <span>A</span>
               <div>
-                <h2>雰囲気の参考</h2>
-                <p>必要な時だけデザイン参考を追加</p>
+                <h2>参考ファイル</h2>
+                <p>文字デザイン流用や全体雰囲気の参考</p>
               </div>
             </summary>
-            <label class="drop-zone" for="moodFiles">
-              <input id="moodFiles" type="file" accept="image/*" multiple />
-              <strong>参考画像を選択</strong>
-              <small>複数枚OK</small>
-            </label>
-            <div id="moodPreview" class="thumb-strip"></div>
+            <div class="reference-file-group">
+              <h3>文字デザイン流用</h3>
+              <p>シリーズ化する時に、書体・帯・縁取り・色分けを厳密に寄せます</p>
+              <label class="drop-zone" for="styleFiles">
+                <input id="styleFiles" type="file" accept="image/*" multiple />
+                <strong>文字デザイン参考を選択</strong>
+                <small>複数枚OK</small>
+              </label>
+              <div id="stylePreview" class="thumb-strip"></div>
+            </div>
+            <div class="reference-file-group">
+              <h3>全体雰囲気参考</h3>
+              <p>色味、余白、テンションだけをゆるく参考にします</p>
+              <label class="drop-zone" for="moodFiles">
+                <input id="moodFiles" type="file" accept="image/*" multiple />
+                <strong>雰囲気参考を選択</strong>
+                <small>複数枚OK</small>
+              </label>
+              <div id="moodPreview" class="thumb-strip"></div>
+            </div>
           </details>
 
           <section class="settings-grid single-setting">
@@ -141,6 +139,21 @@
           </div>
           <div id="referenceReport" class="reference-report" hidden></div>
           <div id="textStyleControls" class="text-style-controls" hidden></div>
+          <div class="design-options">
+            <div class="block-heading compact-heading">
+              <span>R</span>
+              <div>
+                <h3>素材保持ルール</h3>
+                <p>AIデザイン画像生成時に、元素材をどこまで変えてよいか</p>
+              </div>
+            </div>
+            <div class="segmented-list compact-segments" id="preservationRule">
+              <label><input type="radio" name="preservationRule" value="exact" />そのまま使う</label>
+              <label><input type="radio" name="preservationRule" value="color" />色調整のみOK</label>
+              <label><input type="radio" name="preservationRule" value="cleanup" checked />色調整＆不要物削除のみOK</label>
+              <label><input type="radio" name="preservationRule" value="effects" />演出追加OK</label>
+            </div>
+          </div>
           <div class="design-generate-row">
             <button id="generateDesign" type="button">選択見出しとテーマで生成</button>
           </div>
@@ -167,6 +180,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=0.2.21"></script>
+    <script src="./app.js?v=0.2.22"></script>
   </body>
 </html>

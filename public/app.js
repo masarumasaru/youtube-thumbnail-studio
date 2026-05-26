@@ -1,10 +1,11 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.21";
-const APP_BUILD_TIMESTAMP = "2026-05-26 16:45 JST";
+const APP_VERSION = "0.2.22";
+const APP_BUILD_TIMESTAMP = "2026-05-26 18:50 JST";
 
 const state = {
   moodImages: [],
+  styleImages: [],
   baseImages: [],
   headlines: [],
   originalHeadlines: [],
@@ -43,8 +44,10 @@ const templates = [
 
 const els = {
   moodFiles: document.querySelector("#moodFiles"),
+  styleFiles: document.querySelector("#styleFiles"),
   baseFiles: document.querySelector("#baseFiles"),
   moodPreview: document.querySelector("#moodPreview"),
+  stylePreview: document.querySelector("#stylePreview"),
   basePreview: document.querySelector("#basePreview"),
   scriptText: document.querySelector("#scriptText"),
   brandUrl: document.querySelector("#brandUrl"),
@@ -107,6 +110,10 @@ els.moodFiles.addEventListener("change", async (event) => {
   await setMoodImages(event.target.files);
 });
 
+els.styleFiles.addEventListener("change", async (event) => {
+  await setStyleImages(event.target.files);
+});
+
 els.baseFiles.addEventListener("change", async (event) => {
   await setBaseImages(event.target.files);
 });
@@ -129,6 +136,7 @@ els.refreshHeadlines.addEventListener("click", async () => {
 
 els.clearBtn.addEventListener("click", () => {
   state.moodImages = [];
+  state.styleImages = [];
   state.baseImages = [];
   state.headlines = [];
   state.originalHeadlines = [];
@@ -144,10 +152,12 @@ els.clearBtn.addEventListener("click", () => {
   state.textThemes = [];
   state.palette = ["#e63b2e", "#0f8f8a", "#f3c230"];
   els.moodFiles.value = "";
+  els.styleFiles.value = "";
   els.baseFiles.value = "";
   els.scriptText.value = "";
   els.brandUrl.value = "";
   els.moodPreview.innerHTML = "";
+  els.stylePreview.innerHTML = "";
   els.basePreview.innerHTML = "";
   els.headlineList.innerHTML = "";
   renderReferenceReport("");
@@ -182,13 +192,20 @@ els.downloadTextLayer.addEventListener("click", () => {
 });
 
 setupDropZone(document.querySelector("label[for='moodFiles']"), setMoodImages);
+setupDropZone(document.querySelector("label[for='styleFiles']"), setStyleImages);
 setupDropZone(document.querySelector("label[for='baseFiles']"), setBaseImages);
 
 async function setMoodImages(files) {
   state.moodImages = await loadImages(files);
   renderThumbs(els.moodPreview, state.moodImages);
   state.palette = await buildPalette(state.moodImages);
-  setStatus(`${state.moodImages.length}枚の参考画像から色味を拾いました`);
+  setStatus(`${state.moodImages.length}枚の全体雰囲気参考を読み込みました`);
+}
+
+async function setStyleImages(files) {
+  state.styleImages = await loadImages(files);
+  renderThumbs(els.stylePreview, state.styleImages);
+  setStatus(`${state.styleImages.length}枚の文字デザイン参考を読み込みました`);
 }
 
 async function setBaseImages(files) {
@@ -283,8 +300,8 @@ async function generateAiHeadlines(script, count) {
       script,
       count,
       brandUrl: normalizeBrandUrl(els.brandUrl.value),
-      preservationRule: getPreservationRule(),
       moodImages: await imagesForAi(state.moodImages),
+      styleImages: await imagesForAi(state.styleImages),
       baseImages: await imagesForAi(state.baseImages),
     };
     const response = await fetch("/api/headlines", {
@@ -562,6 +579,7 @@ async function generateAiDesign() {
         script: els.scriptText.value.trim(),
         brandUrl: normalizeBrandUrl(els.brandUrl.value),
         moodImages: await imagesForAi(state.moodImages),
+        styleImages: await imagesForAi(state.styleImages),
         baseImages: await imagesForAi(state.baseImages),
         preservationRule: getPreservationRule(),
       }),
@@ -902,7 +920,9 @@ async function renderGeneratedImages(imageUrl, textLayerUrl, options = {}) {
 function designCacheKey() {
   const headline = state.headlines[state.selectedHeadlineIndex] || "";
   const theme = (state.textThemes.length ? state.textThemes : fallbackTextThemes)[state.textStyleIndex] || fallbackTextThemes[0];
-  return JSON.stringify({ headline, theme: theme.name, direction: theme.direction });
+  const styleRefs = state.styleImages.map(({ file }) => `${file.name}:${file.size}`).join(",");
+  const moodRefs = state.moodImages.map(({ file }) => `${file.name}:${file.size}`).join(",");
+  return JSON.stringify({ headline, theme: theme.name, direction: theme.direction, preservation: getPreservationRule(), styleRefs, moodRefs });
 }
 
 function getCachedDesign() {
@@ -993,7 +1013,7 @@ async function composeChromaPackageInBrowser(src, chromaKey, styleSpec = {}, dia
     data[i + 3] = a;
   }
 
-  const objectAlpha = erodeCanvasAlpha(sharpenCanvasAlpha(alpha), canvas.width, canvas.height);
+  const objectAlpha = trimCanvasAlphaEdges(sharpenCanvasAlpha(alpha), canvas.width, canvas.height);
   const layer = new Uint8ClampedArray(data.length);
   for (let pixel = 0; pixel < objectAlpha.length; pixel += 1) {
     const a = objectAlpha[pixel];
@@ -1028,7 +1048,7 @@ async function composeChromaPackageInBrowser(src, chromaKey, styleSpec = {}, dia
         `ブラウザ側でクロマキー透過合成しました: ${key.hex}`,
         `実測マット色: ${rgbToHex(matte.r, matte.g, matte.b)}`,
         "編集しやすい文字素材にするため、抽出後のシャドー再構築は行っていません",
-        "クロマキー縁を抑えるため、文字エッジを約1px内側に締めました",
+        "細い文字を残すため、クロマキー縁は輪郭を削り落とさず半透明で締めました",
         despilled ? `クロマキー色のにじみを${despilled}ピクセル補正しました` : "クロマキー色の大きなにじみは検出されませんでした",
         coverage < 0.015 ? "抽出面積が小さく、文字や帯が欠けている可能性があります" : coverage > 0.3 ? "抽出面積が大きめです。文字の重複や不要な装飾が混入していないか確認してください" : "抽出面積は妥当そうです",
       ],
@@ -1120,7 +1140,7 @@ function sharpenCanvasAlpha(alpha) {
   return output;
 }
 
-function erodeCanvasAlpha(alpha, width, height) {
+function trimCanvasAlphaEdges(alpha, width, height) {
   const output = new Uint8ClampedArray(alpha.length);
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -1128,12 +1148,18 @@ function erodeCanvasAlpha(alpha, width, height) {
       const value = alpha[index];
       if (!value) continue;
       let minNeighbor = value;
+      let edgeNeighbor = false;
       for (let yy = Math.max(0, y - 1); yy <= Math.min(height - 1, y + 1); yy += 1) {
         for (let xx = Math.max(0, x - 1); xx <= Math.min(width - 1, x + 1); xx += 1) {
-          minNeighbor = Math.min(minNeighbor, alpha[yy * width + xx]);
+          const neighbor = alpha[yy * width + xx];
+          minNeighbor = Math.min(minNeighbor, neighbor);
+          if (neighbor < 24) edgeNeighbor = true;
         }
       }
-      output[index] = minNeighbor < 128 ? 0 : Math.round(value * 0.98);
+      if (value < 18) output[index] = 0;
+      else if (edgeNeighbor) output[index] = Math.round(value * 0.86);
+      else if (minNeighbor < 96) output[index] = Math.round(value * 0.94);
+      else output[index] = value;
     }
   }
   return output;

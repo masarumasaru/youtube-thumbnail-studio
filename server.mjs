@@ -9,8 +9,8 @@ const port = Number(process.env.PORT || 4173);
 const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = process.env.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = process.env.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.21";
-const APP_BUILD_TIMESTAMP = "2026-05-26 16:45 JST";
+const APP_VERSION = "0.2.22";
+const APP_BUILD_TIMESTAMP = "2026-05-26 18:50 JST";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -94,8 +94,8 @@ async function handleHeadlines(req, res) {
   const count = clamp(Number(body.count) || 5, 2, 8);
   const script = String(body.script || "").trim();
   const brandUrl = String(body.brandUrl || "").trim();
-  const preservationRule = normalizePreservationRule(body.preservationRule);
   const moodImages = Array.isArray(body.moodImages) ? body.moodImages.slice(0, 4) : [];
+  const styleImages = Array.isArray(body.styleImages) ? body.styleImages.slice(0, 4) : [];
   const baseImages = Array.isArray(body.baseImages) ? body.baseImages.slice(0, 4) : [];
   const brandContext = await getBrandContext(brandUrl);
   const sourceText = composeScriptSource(script, brandContext);
@@ -105,13 +105,14 @@ async function handleHeadlines(req, res) {
     return;
   }
 
-  console.log(`AI headline request: model=${model}, count=${count}, moodImages=${moodImages.length}, baseImages=${baseImages.length}, brand=${brandContext.url ? "yes" : "no"}, preservation=${preservationRule}`);
+  console.log(`AI headline request: model=${model}, count=${count}, styleImages=${styleImages.length}, moodImages=${moodImages.length}, baseImages=${baseImages.length}, brand=${brandContext.url ? "yes" : "no"}`);
 
   const content = [
     {
       type: "input_text",
-      text: buildPrompt({ script: sourceText, count, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, preservationRule }),
+      text: buildPrompt({ script: sourceText, count, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length, brandContext }),
     },
+    ...styleImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
     ...moodImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
     ...baseImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
   ];
@@ -196,7 +197,7 @@ async function handleHeadlines(req, res) {
     return;
   }
   console.log(`AI headline success: ${parsed.headlines?.length || 0} headlines`);
-  const referenceReport = fallbackReferenceReport({ brandContext, moodCount: moodImages.length, baseCount: baseImages.length });
+  const referenceReport = fallbackReferenceReport({ brandContext, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length });
   sendJson(res, 200, {
     model,
     headlines: parsed.headlines.map((item) => ({
@@ -225,6 +226,7 @@ async function handleDesign(req, res) {
   const brandUrl = String(body.brandUrl || "").trim();
   const preservationRule = normalizePreservationRule(body.preservationRule);
   const moodImages = Array.isArray(body.moodImages) ? body.moodImages.slice(0, 4) : [];
+  const styleImages = Array.isArray(body.styleImages) ? body.styleImages.slice(0, 4) : [];
   const baseImages = Array.isArray(body.baseImages) ? body.baseImages.slice(0, 4) : [];
 
   if (!headline) {
@@ -241,18 +243,20 @@ async function handleDesign(req, res) {
     headline,
     textTheme,
     script,
+    styleCount: styleImages.length,
     moodCount: moodImages.length,
     baseCount: baseImages.length,
     brandContext,
     preservationRule,
   });
 
-  console.log(`AI design request: model=${designModel}, moodImages=${moodImages.length}, baseImages=${baseImages.length}, brand=${brandContext.url ? "yes" : "no"}, preservation=${preservationRule}`);
+  console.log(`AI design request: model=${designModel}, styleImages=${styleImages.length}, moodImages=${moodImages.length}, baseImages=${baseImages.length}, brand=${brandContext.url ? "yes" : "no"}, preservation=${preservationRule}`);
 
   const first = await requestDesignImage(apiKey, {
     headline,
     textTheme,
     script,
+    styleImages,
     moodImages,
     baseImages,
     brandContext,
@@ -269,6 +273,7 @@ async function handleDesign(req, res) {
       headline,
       textTheme,
       script,
+      styleImages: [],
       moodImages: [],
       baseImages: [],
       brandContext,
@@ -299,8 +304,8 @@ async function handleDesign(req, res) {
     image: `data:image/png;base64,${imageBase64}`,
     designPlan,
     referenceReport: usedSafetyFallback
-      ? `${designPlan.referenceReport || fallbackReferenceReport({ brandContext, moodCount: moodImages.length, baseCount: baseImages.length })}。安全判定を避けるため、人物の顔・子ども・商標/キャラクターの直接描写を避けた抽象寄せで再生成しました`
-      : designPlan.referenceReport || fallbackReferenceReport({ brandContext, moodCount: moodImages.length, baseCount: baseImages.length }),
+      ? `${designPlan.referenceReport || fallbackReferenceReport({ brandContext, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length })}。安全判定を避けるため、人物の顔・子ども・商標/キャラクターの直接描写を避けた抽象寄せで再生成しました`
+      : designPlan.referenceReport || fallbackReferenceReport({ brandContext, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length }),
   });
 }
 
@@ -385,14 +390,15 @@ function appVersionPayload() {
   };
 }
 
-async function requestDesignImage(apiKey, { headline, textTheme, script, moodImages, baseImages, brandContext, designPlan, preservationRule, safeFallback }) {
+async function requestDesignImage(apiKey, { headline, textTheme, script, styleImages = [], moodImages, baseImages, brandContext, designPlan, preservationRule, safeFallback }) {
   const content = [
     {
       type: "input_text",
       text: safeFallback
         ? buildSafeDesignPrompt({ headline, textTheme, script, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan, preservationRule })
-        : buildDesignPrompt({ headline, textTheme, script, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan, preservationRule }),
+        : buildDesignPrompt({ headline, textTheme, script, styleCount: styleImages.length, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan, preservationRule }),
     },
+    ...styleImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
     ...moodImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
     ...baseImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
   ];
@@ -425,7 +431,7 @@ function isSafetyRejection(data) {
   return /safety|rejected|policy|moderation/i.test(message);
 }
 
-async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount, baseCount, brandContext, preservationRule }) {
+async function createDesignPlan(apiKey, { headline, textTheme, script, styleCount, moodCount, baseCount, brandContext, preservationRule }) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -448,7 +454,7 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount
                 `見出し: ${headline}`,
                 `選択文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
                 `原稿: ${script || "未入力"}`,
-                `A参考画像: ${moodCount}枚 / B元素材: ${baseCount}枚`,
+                `文字デザイン流用参考: ${styleCount}枚 / 全体雰囲気参考: ${moodCount}枚 / B元素材: ${baseCount}枚`,
                 `掲載先ブランド: ${brandContext.url ? formatBrandContext(brandContext) : "指定なし"}`,
                 preservationRuleInstruction(preservationRule),
               ].join("\n"),
@@ -486,12 +492,12 @@ async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount
   const data = await response.json();
   if (!response.ok) {
     console.warn(`OpenAI design-plan error: status=${response.status}, message=${data.error?.message || "unknown"}`);
-    return defaultDesignPlan({ brandContext, moodCount, baseCount });
+    return defaultDesignPlan({ brandContext, styleCount, moodCount, baseCount });
   }
   try {
-    return { ...defaultDesignPlan({ brandContext, moodCount, baseCount }), ...JSON.parse(extractOutputText(data)) };
+    return { ...defaultDesignPlan({ brandContext, styleCount, moodCount, baseCount }), ...JSON.parse(extractOutputText(data)) };
   } catch {
-    return defaultDesignPlan({ brandContext, moodCount, baseCount });
+    return defaultDesignPlan({ brandContext, styleCount, moodCount, baseCount });
   }
 }
 
@@ -537,6 +543,8 @@ async function generateChromaTextPackage(apiKey, { fullImageBase64, imageMime, h
     "部屋、人物、家具、写真、商品、壁、床、照明、背景画像は絶対に含めないでください。",
     `背景は全面を完全な単色 ${keyColor.hex} にしてください。アンチエイリアス以外で背景色を文字や装飾に使わないでください。`,
     "完成サムネと同じ16:9キャンバス上で、文字デザインの位置、サイズ、改行、傾きをできるだけ一致させてください。",
+    "完成サムネで左寄せなら左寄せ、中央寄せなら中央寄せ、下寄せなら下寄せのままにしてください。見やすくするための再センタリングや配置変更は禁止です。",
+    "完成サムネで文字や帯の一部が画面外へ見切れている場合でも、見えている範囲と位置関係を優先し、勝手に全文を中央へ収め直さないでください。",
     "見出し文字は完成サムネに表示されている回数だけ、原則1回だけ描いてください。同じ単語や行を追加・複製しないでください。",
     "完成サムネに存在しない3行目、補足行、反復フレーズ、言い換え文、説明文は絶対に追加しないでください。",
     "完成サムネで見出しが2行なら2行だけ、1行なら1行だけにしてください。余白を埋めるための文字追加は禁止です。",
@@ -1013,7 +1021,7 @@ function preservationRuleInstruction(rule) {
   const instructions = {
     exact: "素材保持ルール: そのまま使う。元素材の構図、人物、商品、背景、色味を変えず、見出しだけ重ねる。不要物除去や色調整もしない。",
     color: "素材保持ルール: 色調整のみOK。明るさ、コントラスト、色味、軽いトーン調整のみ許可。物体、背景、人物、構図は変えない。",
-    cleanup: "素材保持ルール: 不要なものだけ削除OK。字幕、見切れたUI、不要な小物、邪魔なテキストの除去は許可。新しい具体物、人物、場所、商品は追加しない。",
+    cleanup: "素材保持ルール: 色調整＆不要物削除のみOK。明るさ、コントラスト、色味の調整と、字幕、見切れたUI、不要な小物、邪魔なテキストの除去だけ許可。新しい具体物、人物、場所、商品は追加しない。",
     effects: "素材保持ルール: 演出追加OK。抽象的な帯、光、図形、パターン、余白拡張は許可。ただし素材にない人物・商品・場所など具体物は追加しない。",
   };
   return instructions[normalized];
@@ -1028,7 +1036,7 @@ function decodeHtml(value) {
     .replace(/&gt;/g, " ");
 }
 
-function buildPrompt({ script, count, moodCount, baseCount, brandContext, preservationRule }) {
+function buildPrompt({ script, count, styleCount, moodCount, baseCount, brandContext }) {
   return [
     `次の原稿と画像文脈から、YouTubeサムネイル用の日本語見出しを${count}案作ってください。`,
     "",
@@ -1045,12 +1053,13 @@ function buildPrompt({ script, count, moodCount, baseCount, brandContext, preser
     "- 具体性、意外性、ベネフィット、不安解消、本音感の角度を分散する",
     "",
     "文字テーマ案:",
-    "- 掲載先ブランド、A参考画像、B元素材に合う文字デザインテーマを3〜5案出す",
+    "- 掲載先ブランド、文字デザイン流用参考、全体雰囲気参考、B元素材に合う文字デザインテーマを3〜5案出す",
+    "- 文字デザイン流用参考がある場合は、書体の印象、帯、縁取り、色分け、強弱、配置の作法を厳密に寄せるテーマを優先する",
+    "- 全体雰囲気参考は色味、余白、テンションだけをゆるく参照し、文字デザインの厳密コピーには使わない",
     "- 固定テンプレ名ではなく、この案件のトーンに合わせた名前にする",
     "- directionには、文字の雰囲気、色、配置、強弱、余白の使い方を書く",
     "",
-    `画像文脈: このメッセージの画像は、先にAの雰囲気参考画像 ${moodCount}枚、その後にBの元素材画像 ${baseCount}枚の順で添付しています。`,
-    preservationRuleInstruction(preservationRule),
+    `画像文脈: このメッセージの画像は、先に文字デザイン流用参考 ${styleCount}枚、次に全体雰囲気参考 ${moodCount}枚、最後にBの元素材画像 ${baseCount}枚の順で添付しています。`,
     brandContext.url ? `掲載先ブランド文脈: ${formatBrandContext(brandContext)}` : "掲載先ブランド文脈: 指定なし",
     "",
     "原稿:",
@@ -1058,7 +1067,7 @@ function buildPrompt({ script, count, moodCount, baseCount, brandContext, preser
   ].join("\n");
 }
 
-function buildDesignPrompt({ headline, textTheme, script, moodCount, baseCount, brandContext, designPlan, preservationRule }) {
+function buildDesignPrompt({ headline, textTheme, script, styleCount, moodCount, baseCount, brandContext, designPlan, preservationRule }) {
   return [
     "YouTubeサムネイルの完成画像を1枚生成してください。",
     "",
@@ -1066,17 +1075,19 @@ function buildDesignPrompt({ headline, textTheme, script, moodCount, baseCount, 
     "- 16:9の横長サムネイル",
     "- Bの元素材画像を主役として使う。人物・商品・画面・場所などの重要要素はできるだけ保つ",
     `- ${preservationRuleInstruction(preservationRule)}`,
-    "- Aの雰囲気参考画像は色、テンション、余白、コントラストの参考にする",
+    "- 文字デザイン流用参考がある場合は、書体の印象、帯、縁取り、色分け、傾き、行間、余白、強弱を厳密に参考にする",
+    "- 全体雰囲気参考は色、テンション、余白、コントラストだけをゆるく参考にする",
     "- 見出し文字を画像と一体でデザインする。読みやすく、背景になじみ、スマホでも判読できること",
-    "- 見出し文字は上下左右5%以上の安全余白内に完全に収める。キャンバス端で文字が切れる、下端で欠ける、トリミングされる構図は禁止",
-    "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げるか2行内で中央寄せする",
+    "- 出力画像は最終的に16:9へクロップされる前提で、見出し文字と帯は上下左右8%以上の安全余白内に完全に収める",
+    "- キャンバス端、下端、上端、左右端で文字や帯が切れる、欠ける、見切れる、トリミングされる構図は禁止",
+    "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げる、2行にする、余白側へ寄せ直す",
     "- 見出し以外の余計な日本語テキスト、ロゴ風テキスト、架空ラベルは入れない",
     `- 文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
     `- 文字配置は ${designPlan.layout}、処理は ${designPlan.textTreatment}`,
     `- 背景方向性: ${designPlan.backgroundDirection}`,
     "- クリックベイト感より、内容と一致する強い訴求を優先する",
     "",
-    `画像文脈: このメッセージの画像は、先にAの雰囲気参考画像 ${moodCount}枚、その後にBの元素材画像 ${baseCount}枚の順で添付しています。`,
+    `画像文脈: このメッセージの画像は、先に文字デザイン流用参考 ${styleCount}枚、次に全体雰囲気参考 ${moodCount}枚、最後にBの元素材画像 ${baseCount}枚の順で添付しています。`,
     brandContext.url ? `掲載先ブランド文脈: ${formatBrandContext(brandContext)}` : "掲載先ブランド文脈: 指定なし",
     brandContext.url ? "- 背景デザインは掲載先ブランドのトーン、配色、余白感、品位に寄せる。ただしブランドロゴや固有の商標風テキストは描画しない" : "",
     "",
@@ -1099,7 +1110,7 @@ function buildSafeDesignPrompt({ headline, textTheme, script, brandContext, desi
     "- テーマパーク、推し活、ブランド、施設名などは、公式素材やキャラクターを想起させる絵柄にしない",
     "- 見出し以外の日本語テキストやロゴ風文字は入れない",
     "- 16:9の横長サムネイル。見出し文字は大きく読みやすく、背景と一体にデザインする",
-    "- 見出し文字は上下左右5%以上の安全余白内に完全に収める。キャンバス端で文字が切れる、下端で欠ける、トリミングされる構図は禁止",
+    "- 見出し文字は上下左右8%以上の安全余白内に完全に収める。キャンバス端で文字が切れる、下端で欠ける、トリミングされる構図は禁止",
     `- ${preservationRuleInstruction(preservationRule)}`,
     "- 文字を大きくする場合も全文が見えることを優先し、必要なら文字サイズを下げるか2行内で中央寄せする",
     `- 文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
@@ -1115,7 +1126,7 @@ function buildSafeDesignPrompt({ headline, textTheme, script, brandContext, desi
   ].join("\n");
 }
 
-function defaultDesignPlan({ brandContext, moodCount, baseCount }) {
+function defaultDesignPlan({ brandContext, styleCount = 0, moodCount, baseCount }) {
   return {
     layout: "left",
     textTreatment: "editorial",
@@ -1126,11 +1137,11 @@ function defaultDesignPlan({ brandContext, moodCount, baseCount }) {
     panelColor: "#000000",
     fontSize: 104,
     backgroundDirection: "Bの元素材を主役に、左から中央にかけて見出し用の暗め余白を作る",
-    referenceReport: fallbackReferenceReport({ brandContext, moodCount, baseCount }),
+    referenceReport: fallbackReferenceReport({ brandContext, styleCount, moodCount, baseCount }),
   };
 }
 
-function fallbackReferenceReport({ brandContext, moodCount, baseCount }) {
+function fallbackReferenceReport({ brandContext, styleCount, moodCount, baseCount }) {
   const parts = [];
   if (brandContext.url) {
     parts.push(`掲載先サイトは ${brandContext.siteName || brandContext.title || brandContext.url} を参照`);
@@ -1138,7 +1149,8 @@ function fallbackReferenceReport({ brandContext, moodCount, baseCount }) {
     if (brandContext.description) parts.push(`descriptionから「${brandContext.description.slice(0, 80)}」のトーンを参照`);
     if (brandContext.themeColor) parts.push(`theme-color ${brandContext.themeColor} を配色候補として参照`);
   }
-  if (moodCount) parts.push(`A参考画像${moodCount}枚から色味とテンションを参照`);
+  if (styleCount) parts.push(`文字デザイン流用参考${styleCount}枚から書体・帯・縁取り・色分けを厳密に参照`);
+  if (moodCount) parts.push(`全体雰囲気参考${moodCount}枚から色味とテンションをゆるく参照`);
   if (baseCount) parts.push(`B元素材${baseCount}枚を主役画像として参照`);
   return parts.join("。") || "参考サイト指定なし。アップロード画像と原稿の文脈を中心に設計";
 }
