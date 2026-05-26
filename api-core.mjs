@@ -4,8 +4,8 @@ const runtimeEnv = typeof process !== "undefined" ? process.env : {};
 const model = runtimeEnv.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = runtimeEnv.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = runtimeEnv.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.17";
-const APP_BUILD_TIMESTAMP = "2026-05-25 16:57 JST";
+const APP_VERSION = "0.2.18";
+const APP_BUILD_TIMESTAMP = "2026-05-26 10:27 JST";
 
 export async function handleApiRequest(request, env = {}) {
   const url = new URL(request.url);
@@ -237,37 +237,35 @@ async function handleDesign(req, res) {
 
   console.log(`AI design request: model=${designModel}, moodImages=${moodImages.length}, baseImages=${baseImages.length}, brand=${brandContext.url ? "yes" : "no"}`);
 
-  const content = [
-    {
-      type: "input_text",
-      text: buildDesignPrompt({ headline, textTheme, script, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan }),
-    },
-    ...moodImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
-    ...baseImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
-  ];
-
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: designModel,
-      instructions:
-        "You are an expert Japanese YouTube thumbnail art director. Generate one complete 16:9 YouTube thumbnail with integrated Japanese headline typography. Prioritize a cohesive design where image, color, and text feel created together.",
-      input: [{ role: "user", content }],
-      tools: [
-        {
-          type: "image_generation",
-          size: "1536x1024",
-          quality: "medium",
-        },
-      ],
-    }),
+  const first = await requestDesignImage(apiKey, {
+    headline,
+    textTheme,
+    script,
+    moodImages,
+    baseImages,
+    brandContext,
+    designPlan,
+    safeFallback: false,
   });
-
-  const data = await response.json();
+  let response = first.response;
+  let data = first.data;
+  let usedSafetyFallback = false;
+  if (!response.ok && isSafetyRejection(data)) {
+    console.warn(`OpenAI design safety retry: request rejected, retrying safe fallback`);
+    const retry = await requestDesignImage(apiKey, {
+      headline,
+      textTheme,
+      script,
+      moodImages: [],
+      baseImages: [],
+      brandContext,
+      designPlan,
+      safeFallback: true,
+    });
+    response = retry.response;
+    data = retry.data;
+    usedSafetyFallback = true;
+  }
   if (!response.ok) {
     console.warn(`OpenAI design error: status=${response.status}, message=${data.error?.message || "unknown"}`);
     sendJson(res, response.status, { error: data.error?.message || "OpenAI image generation failed" });
@@ -286,7 +284,9 @@ async function handleDesign(req, res) {
     model: designModel,
     image: `data:image/png;base64,${imageBase64}`,
     designPlan,
-    referenceReport: designPlan.referenceReport || fallbackReferenceReport({ brandContext, moodCount: moodImages.length, baseCount: baseImages.length }),
+    referenceReport: usedSafetyFallback
+      ? `${designPlan.referenceReport || fallbackReferenceReport({ brandContext, moodCount: moodImages.length, baseCount: baseImages.length })}。安全判定を避けるため、人物の顔・子ども・商標/キャラクターの直接描写を避けた抽象寄せで再生成しました`
+      : designPlan.referenceReport || fallbackReferenceReport({ brandContext, moodCount: moodImages.length, baseCount: baseImages.length }),
   });
 }
 
@@ -369,6 +369,46 @@ function appVersionPayload() {
     apiVersion: APP_VERSION,
     buildTimestamp: APP_BUILD_TIMESTAMP,
   };
+}
+
+async function requestDesignImage(apiKey, { headline, textTheme, script, moodImages, baseImages, brandContext, designPlan, safeFallback }) {
+  const content = [
+    {
+      type: "input_text",
+      text: safeFallback
+        ? buildSafeDesignPrompt({ headline, textTheme, script, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan })
+        : buildDesignPrompt({ headline, textTheme, script, moodCount: moodImages.length, baseCount: baseImages.length, brandContext, designPlan }),
+    },
+    ...moodImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
+    ...baseImages.map((imageUrl) => ({ type: "input_image", image_url: imageUrl, detail: "low" })),
+  ];
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: designModel,
+      instructions:
+        "You are an expert Japanese YouTube thumbnail art director. Generate one complete 16:9 YouTube thumbnail with integrated Japanese headline typography. Prioritize a cohesive design where image, color, and text feel created together.",
+      input: [{ role: "user", content }],
+      tools: [
+        {
+          type: "image_generation",
+          size: "1536x1024",
+          quality: "medium",
+        },
+      ],
+    }),
+  });
+  return { response, data: await response.json() };
+}
+
+function isSafetyRejection(data) {
+  const message = String(data?.error?.message || "");
+  return /safety|rejected|policy|moderation/i.test(message);
 }
 
 async function createDesignPlan(apiKey, { headline, textTheme, script, moodCount, baseCount, brandContext }) {
@@ -965,6 +1005,30 @@ function buildDesignPrompt({ headline, textTheme, script, moodCount, baseCount, 
     `画像文脈: このメッセージの画像は、先にAの雰囲気参考画像 ${moodCount}枚、その後にBの元素材画像 ${baseCount}枚の順で添付しています。`,
     brandContext.url ? `掲載先ブランド文脈: ${formatBrandContext(brandContext)}` : "掲載先ブランド文脈: 指定なし",
     brandContext.url ? "- 背景デザインは掲載先ブランドのトーン、配色、余白感、品位に寄せる。ただしブランドロゴや固有の商標風テキストは描画しない" : "",
+    "",
+    "サムネに描画する見出し。できるだけこの内容を正確に使ってください:",
+    headline,
+    "",
+    "動画原稿の文脈:",
+    script || "未入力",
+  ].join("\n");
+}
+
+function buildSafeDesignPrompt({ headline, textTheme, script, brandContext, designPlan }) {
+  return [
+    "YouTubeサムネイルの完成画像を1枚生成してください。",
+    "",
+    "これは安全判定で通常生成が拒否された場合の再生成です。以下を厳守してください:",
+    "- 実在人物の顔、子ども、群衆内の個人、著名人、キャラクター、公式ロゴ、商標風の図案は描かない",
+    "- アップロード画像を直接再現せず、内容の雰囲気だけを抽象化する",
+    "- 人物が必要な場合は、顔が判別できない後ろ姿、遠景、シルエット、手元、ぼかした一般的な人物表現にする",
+    "- テーマパーク、推し活、ブランド、施設名などは、公式素材やキャラクターを想起させる絵柄にしない",
+    "- 見出し以外の日本語テキストやロゴ風文字は入れない",
+    "- 16:9の横長サムネイル。見出し文字は大きく読みやすく、背景と一体にデザインする",
+    `- 文字テーマ: ${textTheme.name} - ${textTheme.direction}`,
+    `- 文字配置は ${designPlan.layout}、処理は ${designPlan.textTreatment}`,
+    `- 背景方向性: ${designPlan.backgroundDirection}`,
+    brandContext.url ? `掲載先ブランド文脈: ${formatBrandContext(brandContext)}` : "掲載先ブランド文脈: 指定なし",
     "",
     "サムネに描画する見出し。できるだけこの内容を正確に使ってください:",
     headline,

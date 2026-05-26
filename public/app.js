@@ -1,7 +1,7 @@
 const API_KEY_STORAGE = "openai_api_key";
 const TEXT_LAYER_CACHE_PREFIX = "text_layer_result:";
-const APP_VERSION = "0.2.17";
-const APP_BUILD_TIMESTAMP = "2026-05-25 16:57 JST";
+const APP_VERSION = "0.2.18";
+const APP_BUILD_TIMESTAMP = "2026-05-26 10:27 JST";
 
 const state = {
   moodImages: [],
