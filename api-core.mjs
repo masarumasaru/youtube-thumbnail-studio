@@ -4,8 +4,8 @@ const runtimeEnv = typeof process !== "undefined" ? process.env : {};
 const model = runtimeEnv.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = runtimeEnv.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = runtimeEnv.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.24";
-const APP_BUILD_TIMESTAMP = "2026-05-26 23:31 JST";
+const APP_VERSION = "0.2.25";
+const APP_BUILD_TIMESTAMP = "2026-06-03 23:15 JST";
 
 export async function handleApiRequest(request, env = {}) {
   const url = new URL(request.url);

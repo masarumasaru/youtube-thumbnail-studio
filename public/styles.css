@@ -1,14 +1,20 @@
 :root {
   color-scheme: light;
-  --ink: #15171a;
-  --muted: #646b75;
-  --line: #d7dce2;
-  --paper: #f5f7fa;
+  --ink: #111318;
+  --muted: #68707b;
+  --quiet: #8a929d;
+  --line: #d9dee6;
+  --line-strong: #b9c2ce;
+  --paper: #eef2f6;
   --panel: #ffffff;
-  --accent: #e63b2e;
-  --accent-2: #0f8f8a;
-  --accent-3: #f3c230;
-  --shadow: 0 18px 45px rgba(18, 24, 31, 0.12);
+  --surface: #f8fafc;
+  --surface-strong: #f1f4f8;
+  --accent: #e04436;
+  --accent-2: #138f8a;
+  --accent-3: #e7b833;
+  --focus: rgba(19, 143, 138, 0.2);
+  --shadow: 0 20px 55px rgba(18, 24, 31, 0.12);
+  --soft-shadow: 0 8px 24px rgba(18, 24, 31, 0.08);
 }
 
 * {
@@ -19,7 +25,11 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--ink);
-  background: var(--paper);
+  background:
+    linear-gradient(90deg, rgba(17, 19, 24, 0.035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(17, 19, 24, 0.03) 1px, transparent 1px),
+    var(--paper);
+  background-size: 28px 28px;
   font-family: "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", Meiryo, system-ui, sans-serif;
 }
 
@@ -31,16 +41,22 @@ textarea {
 
 button {
   border: 1px solid var(--line);
-  background: #fff;
+  background: var(--panel);
   color: var(--ink);
   border-radius: 7px;
   min-height: 40px;
   padding: 0 14px;
   cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
 button:hover {
-  border-color: #aeb6c1;
+  border-color: var(--line-strong);
+  box-shadow: var(--soft-shadow);
+}
+
+button:active {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -49,23 +65,23 @@ button:disabled {
 }
 
 .tool-action {
-  min-height: 38px;
-  padding: 0 14px;
-  border-color: #cfd6df;
-  background: #fff;
+  min-height: 40px;
+  padding: 0 15px;
+  border-color: var(--line-strong);
+  background: var(--panel);
   color: var(--ink);
   font-weight: 800;
 }
 
 .primary-action.tool-action {
   border-color: transparent;
-  background: var(--accent);
+  background: var(--ink);
   color: #fff;
 }
 
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(330px, 420px) 1fr;
+  grid-template-columns: minmax(340px, 408px) 1fr;
   min-height: 100vh;
 }
 
@@ -74,18 +90,21 @@ button:disabled {
   top: 0;
   height: 100vh;
   overflow: auto;
-  padding: 28px;
-  background: var(--panel);
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.96);
   border-right: 1px solid var(--line);
+  box-shadow: 10px 0 35px rgba(18, 24, 31, 0.06);
 }
 
 .app-header {
-  margin-bottom: 18px;
+  margin-bottom: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
 }
 
 .app-version {
-  margin: 8px 0 0;
-  color: #8a919b;
+  margin: 9px 0 0;
+  color: var(--quiet);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -108,13 +127,13 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: 31px;
+  font-size: 30px;
   line-height: 1.15;
 }
 
 h2 {
   margin-bottom: 4px;
-  font-size: 22px;
+  font-size: 20px;
 }
 
 h3 {
@@ -124,12 +143,23 @@ h3 {
 
 .panel-stack {
   display: grid;
-  gap: 18px;
+  gap: 14px;
 }
 
 .input-block {
   display: grid;
   gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.primary-source {
+  border-color: rgba(19, 143, 138, 0.38);
+  background:
+    linear-gradient(180deg, rgba(19, 143, 138, 0.06), transparent 78%),
+    var(--panel);
 }
 
 .block-heading {
@@ -147,7 +177,7 @@ h3 {
   flex: 0 0 30px;
   border-radius: 50%;
   color: #fff;
-  background: var(--ink);
+  background: linear-gradient(135deg, var(--ink), #2f3742);
   font-size: 13px;
   font-weight: 800;
 }
@@ -156,14 +186,14 @@ h3 {
   margin-bottom: 0;
   color: var(--muted);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .api-key-block {
-  padding: 8px 10px;
+  padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--surface);
 }
 
 .api-key-block summary,
@@ -198,7 +228,7 @@ h3 {
 
 .compact-api h2 {
   margin-bottom: 1px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .compact-api p {
@@ -231,14 +261,15 @@ h3 {
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: #fff;
+  background: var(--panel);
   font-size: 13px;
   cursor: pointer;
 }
 
 .segmented-list label:has(input:checked) {
   border-color: var(--accent-2);
-  box-shadow: 0 0 0 1px rgba(15, 143, 138, 0.18);
+  background: #effbfa;
+  box-shadow: 0 0 0 3px var(--focus);
 }
 
 .compact-segments {
@@ -252,6 +283,10 @@ h3 {
 .optional-block {
   display: grid;
   gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .optional-block:not([open]) {
@@ -292,12 +327,18 @@ h3 {
 .drop-zone {
   display: grid;
   place-items: center;
-  min-height: 108px;
-  border: 1px dashed #aab3bd;
+  min-height: 104px;
+  border: 1px dashed var(--line-strong);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--surface);
   text-align: center;
   cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.drop-zone:hover {
+  border-color: var(--accent-2);
+  background: #f2fbfa;
 }
 
 .drop-zone input {
@@ -314,6 +355,7 @@ h3 {
 .drop-zone.is-dragging {
   border-color: var(--accent);
   background: #fff4f2;
+  box-shadow: 0 0 0 3px rgba(224, 68, 54, 0.12);
 }
 
 .thumb-strip {
@@ -332,12 +374,13 @@ h3 {
 
 .script-block textarea {
   width: 100%;
-  min-height: 170px;
+  min-height: 150px;
   resize: vertical;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 13px;
   line-height: 1.65;
+  background: var(--surface);
 }
 
 .api-key-row {
@@ -352,6 +395,7 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 0 11px;
+  background: var(--panel);
 }
 
 .wide-input {
@@ -360,6 +404,14 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 0 11px;
+  background: var(--surface);
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px var(--focus);
 }
 
 .api-key-actions {
@@ -407,17 +459,18 @@ h3 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  padding-top: 2px;
 }
 
 .primary-action {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--ink);
+  background: var(--ink);
   color: #fff;
   font-weight: 800;
 }
 
 .workspace {
-  padding: 32px;
+  padding: 30px;
   overflow: auto;
 }
 
@@ -430,19 +483,36 @@ h3 {
 }
 
 .workspace-top {
-  margin-bottom: 24px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -30px -30px 24px;
+  padding: 24px 30px 18px;
+  border-bottom: 1px solid rgba(17, 19, 24, 0.08);
+  background: rgba(238, 242, 246, 0.9);
+  backdrop-filter: blur(12px);
 }
 
 .status {
-  max-width: 360px;
+  max-width: 390px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
   color: var(--muted);
   font-size: 13px;
   text-align: right;
+  box-shadow: var(--soft-shadow);
 }
 
 .headline-board,
 .result-board {
   margin-bottom: 28px;
+  padding: 18px;
+  border: 1px solid rgba(17, 19, 24, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--soft-shadow);
 }
 
 .section-title {
@@ -451,7 +521,7 @@ h3 {
 
 .headline-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 10px;
 }
 
@@ -460,15 +530,21 @@ h3 {
   grid-template-columns: auto 1fr;
   gap: 8px;
   align-items: start;
-  padding: 12px;
+  padding: 13px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
 }
 
 .headline-item:has(input:checked) {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(230, 59, 46, 0.15);
+  box-shadow: 0 0 0 3px rgba(224, 68, 54, 0.13), var(--soft-shadow);
+}
+
+.headline-item:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
 }
 
 .headline-item input[type="radio"] {
@@ -541,6 +617,7 @@ h3 {
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 12px;
+  justify-content: flex-end;
 }
 
 .download-actions[hidden] {
@@ -561,7 +638,7 @@ h3 {
   gap: 12px;
   min-height: 240px;
   overflow: hidden;
-  border: 1px dashed #aab3bd;
+  border: 1px dashed var(--line-strong);
   border-radius: 8px;
   background:
     linear-gradient(45deg, #eef1f5 25%, transparent 25%),
@@ -596,7 +673,7 @@ h3 {
   width: 100%;
   padding: 14px 16px;
   border-top: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.9);
   color: var(--ink);
 }
 
@@ -664,7 +741,7 @@ h3 {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   color: var(--muted);
   font-size: 13px;
   line-height: 1.55;
@@ -685,7 +762,7 @@ h3 {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   color: var(--muted);
   font-size: 13px;
 }
@@ -721,7 +798,7 @@ h3 {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fbfcfd;
+  background: var(--surface);
 }
 
 .compact-heading {
@@ -742,18 +819,22 @@ h3 {
 .design-result {
   display: grid;
   place-items: center;
-  min-height: 360px;
+  min-height: 390px;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(17, 19, 24, 0.16);
   border-radius: 8px;
-  background: #fff;
+  background:
+    linear-gradient(135deg, rgba(17, 19, 24, 0.04) 25%, transparent 25%),
+    linear-gradient(225deg, rgba(17, 19, 24, 0.035) 25%, transparent 25%),
+    #111318;
+  background-size: 22px 22px;
   box-shadow: var(--shadow);
 }
 
 .design-result p {
   max-width: 420px;
   margin: 0;
-  color: var(--muted);
+  color: #b8c0cb;
   text-align: center;
   line-height: 1.6;
 }
@@ -779,7 +860,7 @@ h3 {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   color: var(--ink);
   font-weight: 700;
   line-height: 1.6;
@@ -789,7 +870,7 @@ h3 {
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e7ebf0;
+  background: #dfe5ec;
 }
 
 .progress-bar {

@@ -9,8 +9,8 @@ const port = Number(process.env.PORT || 4173);
 const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const designModel = process.env.OPENAI_DESIGN_MODEL || "gpt-5.4-mini";
 const textLayerImageModel = process.env.OPENAI_TEXT_LAYER_IMAGE_MODEL || "gpt-image-1";
-const APP_VERSION = "0.2.24";
-const APP_BUILD_TIMESTAMP = "2026-05-26 23:31 JST";
+const APP_VERSION = "0.2.25";
+const APP_BUILD_TIMESTAMP = "2026-06-03 23:15 JST";
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
